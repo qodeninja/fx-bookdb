@@ -34,7 +34,7 @@ readonly BOOKDB_DB_FILE="${BOOKDB_SHARE_DIR}/bookdb.sqlite";
 readonly BOOKDB_RC_FILE="${BOOKDB_ETC_DIR}/book.rc";
 readonly BOOKDB_CURSOR_FILE="${BOOKDB_STATE_DIR}/cursor";
 
-readonly BOOKDB_BIN_DIR="${BOOKDB_ROOT_DIR}/bin";
+readonly BOOKDB_BIN_DIR="${BOOKDB_ROOT_DIR}/bin/bookdb";
 readonly SCRIPT_NAME="bookdb";
 
 # Global array to hold arguments after options are parsed.
@@ -760,8 +760,8 @@ do_install() {
   __log "Generating RC file with PATH configuration...";
   cat << EOF > "${BOOKDB_RC_FILE}";
 # bookdb runtime configuration
-export BOOKDB_HOME="${BOOKDB_SHARE_DIR}"
-export BOOKDB_INSTALLED="true"
+export BOOKDB_HOME="${BOOKDB_SHARE_DIR}";
+export BOOKDB_INSTALLED="true";
 
 # Add bookdb bin to PATH if it's not already there.
 if [[ -d "${BOOKDB_BIN_DIR}" ]]; then
