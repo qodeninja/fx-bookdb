@@ -18,9 +18,10 @@ readonly C_GREY=$'\x1B[90m';
 
 # --- Developer & Safety Toggles ---
 # Set DEV_MODE to true to bypass all [y/N] confirmation prompts.
-DEV_MODE=true;
+DEV_MODE=${DEV_MODE:-false};
+
 # Set SAFE_MODE to true to automatically back up the DB before destructive actions.
-SAFE_MODE=false;
+SAFE_MODE=${SAFE_MODE:-false}
 
 # Add this near the other global toggles (this is auto do not edit)
 SAFE_BACKUP_PERFORMED=false;
@@ -55,7 +56,7 @@ BOOKDB_KVNS_NAME=;
 __log() {
   local msg="$1";
   if [[ -z "$QUIET_MODE" ]]; then
-    printf "${C_GREY}LOG: %s${C_RESET}\n" "${msg}" >&2;
+    printf "${C_GREY}[LOG]: %s${C_RESET}\n" "${msg}" >&2;
   fi;
   return 0;
 };
@@ -63,9 +64,9 @@ __log() {
 __error() {
   local msg="$1";
   if [[ -n "$NO_COLOR" ]]; then
-    printf "ERROR: %s\n" "${msg}" >&2;
+    printf "[ERROR]: %s\n" "${msg}" >&2;
   else
-    printf "${C_RED}ERROR: %s${C_RESET}\n" "${msg}" >&2;
+    printf "${C_RED}[ERROR]: %s${C_RESET}\n" "${msg}" >&2;
   fi;
   return 1;
 };
@@ -292,17 +293,21 @@ ___unlink_from_profile() {
   local link_line_pattern="source .*${BOOKDB_RC_FILE}";
   local link_sentinel_pattern="# bookdb configuration";
 
-  if [[ ! -f "${profile_file}" ]]; then return 0; fi; # Nothing to do
+  if [[ ! -f "${profile_file}" ]]; then return 0; fi;
 
   if grep -qF -- "${link_sentinel_pattern}" "${profile_file}" 2>/dev/null; then
     __log "Removing bookdb configuration from '${profile_file}'...";
-    # Create a temporary file, use sed to delete the lines, then replace original
-    sed "/${link_sentinel_pattern}/,/${link_line_pattern}/d" "${profile_file}" > "${profile_file}.tmp";
-    mv "${profile_file}.tmp" "${profile_file}";
+    
+    # Use '#' as the sed delimiter to avoid conflicts with '/' in the file path.
+    # The '\' before '#' escapes it so sed knows it's the start of the pattern address.
+    sed -i.bak "\#${link_sentinel_pattern}#,\#${link_line_pattern}#d" "${profile_file}";
+    # For compatibility, some seds don't handle -i without an extension well. 
+    # The above is safer and we just remove the backup.
+    rm -f "${profile_file}.bak";
+
     return $?;
   fi;
 };
-
 
 #
 # --- Command Functions (Business Logic) ---
