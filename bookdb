@@ -42,7 +42,7 @@
 
   readonly LINE="$(printf '%.0s-' {1..54})";
 
-  stderr(){ [ -z "$QUIET_MODE" ] || [ -n  $2 ] && printf "%b" "${1}$(color xx)\n" 1>&2; }
+  stderr(){ [ -z "$QUIET_MODE" ] || [ -n  $2 ] && printf "%b" "${1}${xx}\n" 1>&2; }
   fatal(){ stderr "force" "$red$1";  exit 1; }
   error(){ stderr "force" "$red$1"; }
   warn(){  stderr "$orange$1"; }
@@ -71,17 +71,17 @@ SAFE_BACKUP_PERFORMED=false;
 # XDG+ Paths (as per BASHFX architecture)
 
 # ref: CHANGE TO BASHFX XDG
-_XDG_HOME="${HOME}/.local/";
+_XDG_HOME="${HOME}/.local";
 _XDG_PREF="fx/${BOOK_PREF}";
 
 readonly BOOK_LIB="${_XDG_HOME}/lib/fx/app"; #special namespace for external apps
 
-readonly BOOK_BIN="${_XDG_HOME}/bin/${_XDG_PREF}";
+readonly BOOK_BIN="${_XDG_HOME}/bin/fx";
 readonly BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
 readonly BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; 
 
 readonly BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
-readonly BOOK_CACHE="${$HOME}/.cache/${_XDG_PREF}";
+readonly BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
 
 readonly BOOK_RC="${BOOK_ETC}/bookrc";
 readonly BOOK_DB="${BOOK_DATA}/bookdb.sqlite"; 
@@ -121,7 +121,6 @@ BOOK_KVNS_NAME=;
     done;
     return 1; # None were empty
   }
-
 
 
 
@@ -1010,6 +1009,7 @@ do_reset(){
     
     # Remove installed directories and the binary
     rm -rf "${BOOK_SHARE}" "${BOOK_ETC}" "${BOOKDB_STATE_DIR}";
+    rm -f "${BOOK_LIB}/${BOOK_PREF}";
     rm -f "${BOOK_BIN}/${BOOK_PREF}";
 
     
@@ -1191,7 +1191,9 @@ __setup_sql(){
 __setup_dirs(){
   # Create all directories, including the new bin dir
   log "Creating XDG+ directories...";
-  mkdir -p "${BOOK_SHARE}" "${BOOK_ETC}" "${BOOKDB_STATE_DIR}" "${BOOK_BIN}" || fatal "Failed to create directories";
+  
+  mkdir -p "${BOOK_DATA}" "${BOOK_LIB}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_BIN}" || fatal "Failed to create directories";
+
 }
 
 __setup_confirm(){
@@ -1204,8 +1206,8 @@ __setup_confirm(){
   
   info "The installer will perform the following actions:\n";
 
-  printf "  1. Create directories in: %s\n" "${BOOKDB_ROOT_DIR}" >&2;
-  printf "  2. Copy itself to:        %s/%s\n" "${BOOK_BIN}" "${BOOK_PREF}" >&2;
+  printf "  1. Create directories in: %s\n" "${BOOK_LIB}" >&2; 
+  printf "  2. Copy itself to:        %s/%s\n" "${BOOK_BIN}" "" >&2;
   printf "  3. Modify your shell profile: %s\n" "${profile_file}" >&2;
 
   if ! __confirm_action "Proceed with full installation?"; then
@@ -1228,21 +1230,22 @@ do_install(){
   __setup_confirm "$profile_file" || return 1;
   __setup_dirs;
 
+  _cp_path="${BOOK_LIB}/${BOOK_PREF}";
+
+
   # Copy and permission the script
-  info "Installing script to ${BOOK_BIN}/${BOOK_PREF}...";
+  info "Installing script to ${_cp_path}...";
 
 
 
   script_path=$(cd "$(dirname "${BOOK_PATH}")" &> /dev/null && pwd)/$(basename "${BOOK_PATH}");
 
-  _cp_path="${BOOK_BIN}/${BOOK_PREF}";
+  ln -s "$_cp_path" "${BOOK_BIN}/${BOOK_PREF}";
 
-  echo "Path is $_cp_path | $script_path";
-
-  cp "${script_path}" "${BOOK_BIN}/";
+  cp "${script_path}" "${_cp_path}";
   if [[ $? -ne 0 ]]; then fatal "Failed to copy script to bin directory."; fi
 
-  chmod +x "${BOOK_BIN}/${BOOK_PREF}";
+  chmod +x "${_cp_path}";
 
 
 
@@ -1252,8 +1255,8 @@ do_install(){
   log "Generating RC file with PATH configuration...";
   cat << EOF > "${BOOK_RC}";
 # bookdb runtime configuration
-export BOOKDB_HOME="${BOOK_SHARE}";
-export BOOKDB_INSTALLED="true";
+export BOOK_LIB="${BOOK_LIB}";
+export BOOK_INSTALLED="true";
 
 # Add bookdb bin to PATH if it's not already there.
 if [[ -d "${BOOK_BIN}" ]]; then
