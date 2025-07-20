@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+#
+# Full Test Suite for bookdb
+# This script runs through all major commands to verify functionality.
+# It cleans up after itself and provides clear output for each step.
+#
+
+# Setup
+# Exit immediately if a command exits with a non-zero status.
+set -e
+# Print each command to the terminal before executing it.
+#set -x
+
+# Define some colors for clear output headers
+  readonly  red2=$'\x1B[38;5;197m';
+  readonly  red=$'\x1B[31m';
+  readonly  orange=$'\x1B[38;5;214m';
+  readonly  yellow=$'\x1B[33m';  
+
+  readonly  green=$'\x1B[32m';
+  readonly  blue=$'\x1B[36m';
+  readonly  blue2=$'\x1B[38;5;39m';
+  readonly  cyan=$'\x1B[38;5;14m';
+  readonly  magenta=$'\x1B[35m';  
+
+  readonly  purple=$'\x1B[38;5;213m';
+  readonly  purple2=$'\x1B[38;5;141m';
+  readonly  white=$'\x1B[38;5;248m';
+  readonly  white2=$'\x1B[38;5;15m';
+  readonly  grey=$'\x1B[38;5;244m';
+  readonly  grey2=$'\x1B[38;5;240m';
+  readonly  xx=$'\x1B[0m'; 
+
+readonly LINE="$(printf '%.0s-' {1..54})";
+
+line(){ printf "$LINE"; >&2; }
+
+__printx() {
+  local text=$1 color=$2 prefix=$3 stream=${4:-2}
+  local color_code=${!color:-$white2}
+  [ -n "$text" ] && printf "%b" "${color_code}${prefix}${text}${x}" >&$stream
+}
+
+__banner() {
+    local text="$1"; local color="$2"; local fill_char="${3:--}"  width;
+    color=${!color:-$white2}
+    # Get terminal width, defaulting to 80 if tput is not available
+    width=$(tput cols 2>/dev/null || echo 80);
+
+    # The visible text block includes the text plus two spaces on each side
+    local text_block_len=$(( ${#text} + 4 ));
+
+    # If the text is wider than the screen, just print it centered and colored
+    if (( text_block_len >= width )); then
+        printf "\n%b%s%b\n" "${color}" "  ${text}  " "" "green"; >&2;
+        return 0;
+    fi
+
+    # Calculate how many filler characters are needed
+    local total_filler_len=$((width - text_block_len));
+    local left_filler_len=$((total_filler_len / 2));
+    local right_filler_len=$((total_filler_len - left_filler_len));
+
+    # Build the left and right filler bars
+    # Using a loop for maximum portability (avoids issues with seq or brace expansion)
+    local left_bar=""
+    for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done
+    
+    local right_bar=""
+    for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done
+
+    # Print the final banner to stderr
+    # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
+    printf "\n%b  %s%s%s  %b\n" "${color}" "${left_bar}"  "${text}"  "${right_bar}" "${xx}" >&2
+}
+
+__banner "Phase 0: Initial Setup & State Verification" "green";
+# Ensure we have a clean, predictable installation with test data
+bookdb dev_setup -y;
+
+# Verify initial state with read-only commands
+bookdb status;
+bookdb cursor;
+
+
+__banner "Phase 1: Namespace Creation & Basic CRUD" "green"; 
+# Test `new project`
+bookdb new project --ns webapp;
+
+# Verify project creation with `ls project`
+bookdb ls project | grep "webapp";
+
+# Test `new keyval` (this will be created in the current cursor context: @GLOBAL.VAR.MAIN)
+bookdb new keyval --ns settings;
+
+# To create a keystore in our new project, we first set the context using a `setv` command
+# Test `setv` with a context chain to create a key and set the cursor
+bookdb setv TIER="development" @webapp.VAR.MAIN;
+
+# Verify the cursor has changed
+bookdb cursor | grep "webapp";
+
+# Now create a new keystore in the 'webapp' project
+bookdb new keyval --ns secrets;
+
+# Test `ls vars` to see the new keystore
+bookdb ls vars | grep "secrets"
+
+# Set some variables in the new keystore
+bookdb setv API_KEY="key-super-secret-12345" @webapp.VAR.secrets
+bookdb setv TIMEOUT=30 @webapp.VAR.secrets
+
+# Test `getv` to retrieve a value
+API_KEY_VAL=$(bookdb getv API_KEY @webapp.VAR.secrets)
+echo "Retrieved API Key: ${API_KEY_VAL}"
+
+# Test updating a value
+bookdb setv TIMEOUT=60 @webapp.VAR.secrets
+TIMEOUT_VAL=$(bookdb getv TIMEOUT @webapp.VAR.secrets)
+if [[ "${TIMEOUT_VAL}" != "60" ]]; then exit 1; fi
+
+
+__banner "Phase 2: Numerical Operations and Search" "green";
+# Test `incv` and `decv`
+bookdb setv COUNTER=100 @webapp.VAR.secrets
+bookdb incv COUNTER @webapp.VAR.secrets
+bookdb incv COUNTER 5 @webapp.VAR.secrets # Increment by 5
+bookdb decv COUNTER 2 @webapp.VAR.secrets # Decrement by 2
+COUNTER_VAL=$(bookdb getv COUNTER @webapp.VAR.secrets)
+# 100 + 1 + 5 - 2 = 104
+if [[ "${COUNTER_VAL}" != "104" ]]; then exit 1; fi
+
+# Test `find`
+bookdb find API_KEY | grep "@webapp.VAR.secrets -> API_KEY"
+bookdb find '%_KEY' | grep "API_KEY"
+
+
+__banner "Phase 3: All `ls` Variants" "green";
+# Test all variants of the `ls` command
+bookdb ls project
+bookdb ls vars @webapp.VAR.MAIN
+bookdb ls keys @webapp.VAR.secrets
+bookdb ls # The new `ls all` command
+
+
+__banner "Phase 4: File I/O (pub, unpub, export, import, migrate)" "green";
+# Create a dummy .env file to test with
+touch test.env
+
+# Test `pub` to publish a key to the file
+bookdb pub @webapp.VAR.secrets.API_KEY ./test.env
+# Verify the file now contains the key
+grep "API_KEY=\"key-super-secret-12345\"" ./test.env
+
+# Test `unpub` to remove the key from the file
+bookdb unpub @webapp.VAR.secrets.API_KEY ./test.env
+# Verify the key is gone (the `!` inverts the exit code, so it succeeds if grep finds nothing)
+! grep "API_KEY" ./test.env
+
+# Test `export keystore`
+bookdb export keystore @webapp.VAR.secrets
+# Verify the export file was created and has content
+ls webapp_secrets.env
+grep "API_KEY" webapp_secrets.env
+
+# Test `import`
+printf "NEW_FEATURE_FLAG=true\n" > import_me.env
+bookdb import ./import_me.env @webapp.VAR.settings -y
+# Verify the imported key exists
+bookdb getv NEW_FEATURE_FLAG @webapp.VAR.settings | grep "true"
+
+# Test `migrate`
+bookdb migrate
+# Verify the migration directory was created
+ls -d bookdb_fullbak_*
+
+# Test `backup`
+bookdb backup
+# Verify the backup tarball was created
+ls bookdb_backup_*.tar.gz;
+
+
+__banner "Phase 5: Deletion and Cleanup" "green";
+# Test `delv`
+bookdb delv COUNTER @webapp.VAR.secrets -y;
+
+# Test `del keyval`
+bookdb del keyval --ns secrets @webapp.VAR.MAIN -y;
+
+# Test `del project`
+bookdb del project --ns webapp -y;
+# Verify project is gone
+! bookdb ls project | grep "webapp";
+
+# Clean up the files and directories created during the test
+echo "Cleaning up temporary test files...";
+rm -f test.env webapp_secrets.env import_me.env bookdb_backup_*.tar.gz;
+rm -rf bookdb_fullbak_*;
+
+
+__banner "Phase 6: Final Reset" "green";
+# Test the full reset and uninstall command
+bookdb reset -y
+
+
+# Teardown
+# Stop printing commands
+set +x
+
+__banner "\n\n✅ All commands tested successfully! The system has been reset." "green";

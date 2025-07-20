@@ -9,141 +9,267 @@
 [![Test: OK](https://img.shields.io/badge/Test-Awesome-brightgreen.svg)]()
 
 
-`bookdb` is a pretty neat CLI tool for managing and sharing state across disparate tools via an ultra-light `sqlite` interface. It provides a low level, namespaced key-value store for your scripts and operations by abstracting cumbersome SQL queries into powerful CLI and automation friendly commmands, via the quantum magic of delicious *Context Chains*. 🤌
+`bookdb` is a general purpose CLI tool for managing and sharing state across disparate tools via an ultra-light `sqlite` interface. It allows for modular, custom utilities to define their objects, relationships and interfaces within their feature scope.
 
-Think of it as a system registry hive or a simple NoSQL database made with ~~duck~~ duct tape and sticks by a recovering hipster imitating the intricate dance of a beaver that tortures itself by making skyscrapers out of impossible materials like Spandex.
+**VAR Keystore**
 
-This is a test, but also a rare work of art in tool form dripping with my vibe, so says my resident parser. This my friend is *junkyard engineering* made of metaphoric spare discarded parts.
+The introductory MVP featureset for bookDB is its VAR Keystore feature, which provides expressive key-value stores for namespaced datasets. It enables novel patterns for managing state, meta information, and environment variables through its rewindable api and innovative profile switching algorithm using a mechanism called the *Cursor*. 
 
-## 📦 Core Features
-
-1.   **Persistent Storage:** Your data is squirreled away ~~stored~~ in a `sqlite3` database, surviving reboots, new shell sessions, and dare I say the rapture.
-
-2.   **Hierarchical Namespaces:** Organize your variables into `Projects` and `Key-Value Stores` to prevent conflict between angry applications using baseball bats as greeting wands.
-3.  **Context-Aware "Cursor":** Set your active context once and all subsequent commands run within that namespace, just like being ~~sent to bed with no supper~~ `cd`-ed into a directory.
-4.  **Powerful I/O:** Easily `import` and `export` variables from standard `.env` files, enabling seamless integration with other tools and powerful migration paths that lead to world domination.
-5.   **Hot File Publishing:** Surgically `publish` or `unpublish` individual key-value pairs to and from external configuration files with a sassy flip of your hair.
-6.   **Atomic Counters:** Toss `increment` and `decrement` numerical values at the databeez to keep it guessing.
-7.  **Automated Installation & Safety:** A smart installer that configures your shell environment, plus automatic daily backups to protect your ~~doodles~~ data.
-8.  **Clean CLI Interface:** All SQL complexity is abstracted away into simple, intuitive commands like `getv`, `setv`, and `find` and `zorp`. JK dont use `zorp`. ZORP IS NOT A COMMAND GUYS!
+The innovative featuers of VAR, abstract cumbersome SQL queries into powerful commands that express intent, and restores context through a virtual stack  concept called *Context Chains*, in an interface that is friendly for both command lines and automation.
 
 
-
-## ⚡BashFX Principles 
-On a more 9-to-5 note, `bookdb` is built according to a set principles called **BashFX**, designed to make shell tools powerful without being rude. 
-
-For you as a user, this means:
-
-*   **Self-Contained:** All installation artifacts (the database, config files, etc.) live inside a single standardized root directory: `~/.local`.
-*   **Invisible:** `bookdb` will never create new dotfiles (`.bookdb`, etc.) in your `$HOME` directory or  pollute your home with anything it generates. It keeps its mess in its own room.
-*   **Rewindable:** The automated `install` has an equally automated counterpart. The `reset` command will fully uninstall `bookdb`, removing the script, all data, and its entry from your shell profile. *Most* commands have a rewindable counterpart.
-*   **Friendly:** The tool should be proactive in communicating its state. Commands like `status` and `cursor`, and the use of clear log messages, are designed to keep you informed.
+<br >
 
 
+## 📦 Bookdb's VAR Core Features
 
-## 🤔Requirements
+**Persistent Storage:** Your data is squirreled away ~~stored~~ in a `sqlite3` database, surviving reboots, new shell sessions, and dare I say the rapture. As an sqlite file your data is easy to move and backup using your prefered tools.
+<br >
 
-`bookdb` features a ~~fiendish~~ friendly, interactive installer that handles everything for you... *except* your sqlite3 installation and how you might feel about that.
+**Hierarchical Namespaces:** Organize your variables into `Projects` and `Key-Value Stores` to prevent conflict between angry applications using baseball bats as greeting wands.
+<br >
 
-### Prerequisite: Install `sqlite3`
+**Context-Aware "Cursor":** Set your active context once and all subsequent commands run within that namespace, just like being ~ `cd`-ed into a directory.
+<br >
 
-You should have `sqlite3` installed and available in your `PATH`. You can check this by running `command -v sqlite3`. If you've never used it before, dont worry it's *pretty* lighweight and defacto on many systems.  
+**Powerful I/O:** Easily `import` and `export` variables from standard `.env` files, enabling seamless integration with other tools and powerful migration paths that lead to world domination.
+<br >
 
-If it's not found, here's how to install it on common systems:
+**Hot File Publishing:** Surgically `publish` or `unpublish` individual key-value pairs to and from external configuration files with a sassy flip of your hair.
+<br >
 
-*   **On Debian/Ubuntu:**
-    ```bash
-    sudo apt-get update && sudo apt-get install sqlite3
-    ```
-*   **On Red Hat/CentOS/Fedora:**
-    ```bash
-    sudo yum install sqlite
-    # Or, on modern Fedora:
-    sudo dnf install sqlite3
-    ```
-*   **On macOS (with Homebrew):**
-    ```bash
-    brew install sqlite
-    ```
-### ⚠️ Beta Version
+**Atomic Counters:** Toss `increment` and `decrement` numerical values at the databeez to keep it guessing.
+<br >
 
-  Generally, Debian-based distros with Bash 3.2+ or higher are supported, since direct manual tests of each MVP phase passed without errors, e.g. "works on my machine."
-  
-  Hypothetically any Bash 3.2+ environment might be compatible; except where certain command idioms differ by OS or implementation. `sed` is a usual suspect among others. 
+**Automated Installation & Safety:** A smart installer that configures your shell environment, plus automatic daily backups to protect your ~~doodles~~ data.
+<br >
 
-  **Help Us Cure Works-On-My-Machine Syndrome** and bring wider support to more folks by testing it on your system(s). 
+**Clean CLI Interface:** All SQL complexity is abstracted away into simple, intuitive commands like `getv`, `setv`, and `find`.
 
-  As a self-contained script `bookdb` wont evil-mangle your stuff, so if you're willing to give er a go, and see what blows in an effort to determine cross-system support, that contribution is most welcome!
 
-  **Assume every new untested tool may cause unforeseen issues, and make sure your data/system state is recoverable before using!**
-
-  Having said that, if you accept these risks and limitations, we get the deeds did and the databeez ~~fid~~ fed.
+<br >
 
 
 
+## 🚀 60-Second Quick Start
 
-## 🪜Installation
-## BookDB Installer
+Forget the manual! 
 
-**1. Get the Repo.**
-
-Generally, `bookdb` is such a flirt that it'll try to install itself whenever it detects an anomoly in its reality anchors (dont worry, wont clobber); barring that you can install as follows:
+Let's do something useful *right now*. Quick and easy setup then, we'll store a test API key for a new project called `webapp`.
 
 
 ```bash
-# 1. Get the project repo. Duh. You cant databeez stuff without it. unless your a wizard.
+
+# 1. Get the project repo. Duh. 
 git clone https://github.com/qodeninja/bookdb.git
 cd bookdb
 
 # 2. Run the interactive interactor. You're a lizard Larry!
 ./bookdb install
-```
 
-**2. What that button do?**
+# After installation you dont need the ./ invoker anymore!
 
-The installer will:
-1.  Explain the actions it will take (creating directories, copying the script to `~/.local/bin/`, etc.).
-2.  Intelligently detect your shell profile (`~/.bashrc`, `.profile`, ~~`~/.zshrc`~~, etc.). 
-3.  Ask for your confirmation before making any changes.
-
-Once you grudginly approve the injection of a powerful alien tool into your unsuspecting system, it will automatically configure your ~~soul~~ shell to do what it ~~wants~~ does best. Adventure seekers among us can alternatively avoid all the fluff and fatigue with a well placed `-y` flag for a good time.
-
-**3. Restart Your ~~Soul~~ Shell**
-
-To complete the ~~assimilation~~ installation, start a new shell session or run `source ~/.bashrc` (or your appropriate profile file). The `bookdb` command will now be available everywhere.
-
-👁️ Note: once you've installed `bookdb` into your system  you wont have to use the `./` invoker anymore.
-```bash
-# Call me anytime, im here on the ... line. Commmand line.
+# 3. First, see where we are. This is our 'before' picture.
 bookdb status
+#> --- BookDB Status ---
+#>   ...
+#>   Active Cursor: @GLOBAL.VAR.MAIN
+#>   ...
 
-# list all of my horcruxes.
-bookdb ls
+# 4. Create a new project namespace for our webapp.
+bookdb new project --ns webapp
+
+# 5. Now for the magic. Create a 'config' keystore AND set our first key
+#    in a single command using a "Context Chain".
+#    This also sets our active cursor for next time!
+bookdb setv API_KEY="key-super-secret-12345" @webapp.VAR.config
+#> LOG: Persisting new context to cursor: webapp.config
+#> LOG: Creating new variable: 'API_KEY'
+
+# 6. Our cursor is now set. We don't need the full context chain anymore.
+#    Let's get our key back.
+bookdb getv API_KEY
+#> key-super-secret-12345
+
+# 7. Use it in a script! This is the whole point.
+api_key=$(bookdb getv API_KEY)
+echo "The API key for our awesome webapp is: ${api_key}"
+#> The API key for our awesome webapp is: key-super-secret-12345
+
+# There's much more power to this than just simple keystores!
+#
 ```
 
-Ok, that was the EZ PZ PART, as promised. Next comes the crazy stuff.
+And that's it. In less than a minute, you've created a namespaced, persistent variable and used it in a script. Now, let's understand the magic trick you just performed.
 
 
 
+# VAR Keystore Concepts
+
+## 💫 Context Chains & Cursors
+
+The most powerful and unique features of `bookdb` is the **Context Chain** and the **Cursor File**. They provide the secret sauce that elevates bookdb from a simple key-value store to a true state management tool.
+
+A **Context Chain** (chain) is a dot delimited string that gives commands a temporary or permanent "address" or "cursor" to work from. A fully qualified chain includes all relevant contexts with no assumed/implied contexts.
+
+> A reasonable mental model is to think of a Context Chain as a package namespace, except with read and write permissions. 
+
+> Note that all VAR commands use the `.VAR.` feature namespace as part of their sub chain:
+
+```bash
+     @.wepabb.VAR.config  #an example context chain with activation behavior
+    \___________________/
+```
+> Context Chain Breakdown
+
+```
+
+  @       webapp      .VAR.      config
+  |          |           |          |
+PREFIX    PROJECT     KEYWORD    KEYSTORE
+(The       (The top-   (For the    (The sub-folder
+Action)    level        MVP, this    for your
+           project)     is always    variables)
+                        'VAR')
+```
+
+
+## Shape of a Context Chain
+
+Generally, a *namespace*, is a placeholder for a value. Namespaces can be dot-linked together to form a chain (e.g. context chain). A namespace's position in a chain gives it a meta-context with special meaning. For example, the first and last namespaces in a context chain represent a behavior prefix, and lookup key respectively. 
+
+The chain shape is misleading as the implied structure here is actually a tree; it has a trunk and can have multiple branches. 
+The chain represents the path of nodes along the tree that define the heirarchal context we want to activate or access.
+
+> In essence the Workspace = is the set of active heirachal contexts that create a Context Chain. A Context Chain is *activated* by applying it to a command with a write context.
+
+
+```   
+|       @ or %        |   |       context1      | |         VAR         |   |       context2      |
+| -------- | -------- |   |  ------- | -------- | | -------- | -------- |   |  ------- | -------- |
+|       PREFIX        |   |       PROJECT       | |      FEATURE NS     |   |       KEYSTORE      | 
+ \___________________/  .  \___________________/ . \___________________/  .  \___________________/ ...
+
+```
+
+
+> The MVP implementation of VAR only supports a single level keystore, which means you cannot nest keystores. This may change in the future.
+
+An **activated chain**  defines a session or workspace relative to its namespace heirarchy. When a chain is activated, a **workspace** is created via a stateful *Cursor File* (cursor). It houses the cached values of each individual namespace and represents an anchor for all subsequent commands within the session.
+
+The cursor essentially solves the problem of having to include `--projdb webapp --keydb config` in every command, and opens up cleaner cli patterns for scripts and automation.
+
+This is accomplished through the bookmarking power of the cursor. It indexes a marker for each active namespace in a chain. When the cursor is loaded by `bookdb`, it provides the workspace context for subsequence commands until a new workspace is started. 
+
+> e.g. activating a chain = starting a session/workspace
+
+
+### 🔗 Chain Behaviors
+Chains currently offer two types of behavior modes `@ activate ` and `% readonly` via its PREFIX namespace. All chains must include an explicit behavior mode prefix when invoked, as there is no default.
 <br>
+<br> 
+* **Activate/Write**
 
-## 💫 Contexts & The Cursor
+  Let's dissect the chain we used in the Quick Start: `@webapp.VAR.config`
 
-The most powerful feature of `bookdb` is its context-aware cursor. A **context chain** is a simple string that points to a specific namespace.
+  The magic lies in the **Prefix**. It tells `bookdb` *how* to treat the context for the command.
+
+  #### `@` — The "Sticky" Cursor (Set & Execute)
+
+  *   **What it does:** Uses the context for the current command **AND** saves it as the new default cursor for all future commands.
+  *   **Analogy:** Think of `@` as `cd`-ing into a directory and *staying there*.
+  *   **When to use it:** Use this when you are starting a new task and want all your subsequent `getv`, `setv`, `ls` commands to operate within that new context. This is what you'll use 90% of the time.
+
+  ```bash
+  # Set the cursor to @webapp.VAR.config
+  bookdb status @webapp.VAR.config
+
+  # This ls command now implicitly runs inside 'webapp.config'
+  bookdb ls
+  ```
+
+* **Safe Invovation**
+
+  The safe pattern is to set the cursor for every invocation, this prevents accidentally clobbering of precious keystore values by requiring a user to explicitly request the location they want to set for the cursor. It's important to point out that the indexing feature of the cursor is entirely optional, as you can prefer to explicitly call the context you want for each request.
+
+  **Disable Auto Context (TBD)**
+  In later versions, `bookdb` will support disabling the auto-loading of the cursor via an opt-in `DISABLE_CURSOR`. If you prefer explicit calls over magic calls.
+<br>
+<br> 
+* **Readonly**
+
+  Alternatively, the readonly mode runs an explicit command with an explicit chain and does not alter the underlying cursor. It's useful if you need to quickly crossover to another profile/project for commands but dont want to change the cursor. It's mostly a convenience command for power users, since using readonly mode can make it difficult to reason about the state of your keystore.
+
+  #### `%` — The "Read-Only" Cursor (Execute Only)
+
+  *   **What it does:** Uses the context **for this one command ONLY**. It does *not* change your active cursor.
+  *   **Analogy:** Think of `%` as taking a quick peek into another directory for one task, without actually changing your current directory.
+  *   **When to use it:** Perfect for when you're in the middle of working on one project but need to quickly grab a secret or a value from another, without losing your place.
+
+  ```bash
+  # You are currently working in @webapp.VAR.config
+  bookdb cursor
+  #> Active Cursor: @webapp.VAR.config
+
+  # Quickly get the database password from the GLOBAL secrets keystore
+  # without changing your cursor.
+  DB_PASS=$(bookdb getv ADMIN_PASSWORD %GLOBAL.VAR.secrets)
+
+  # You are still in your original context.
+  bookdb cursor
+  #> Active Cursor: @webapp.VAR.config
+  ```
+<br>
+<br> 
+
+### 🔗 The Final Form: Chains with Keys (`pub`/`unpub`)
+
+The `pub` and `unpub` commands use an extended version of the chain that includes the key itself, allowing them to target a single variable for file operations.
+
+`@<Project>.<VAR>.<Keystore>.<Key>`
+
+This special form tells `pub` exactly which variable to find in the database and write to a file.
+
+**The Golden Rule:** If you want to change your working context for the foreseeable future, use `@`. If you just need to grab one thing from somewhere else without losing your place, use `%`.
+
+
+
+
+## 💫 Cursor Behavior
+
+### Cursor Defaults
+If no cursor is set, or any part of a fully qualified chain is missing, `bookdb` will automatically reset each missing context to their default. The top-level project or profile namespace uses a default `GLOBAL` context, whereas children namespaces default to `main`. 
+
+This means after any reset or first install the default chain (also known as the **Super Global Context Chain** ) is always available as `@GLOBAL.VAR.main`. 
+
+
+### Super Global Context Chain (super chain)
+
+The super chain is special in that it is the only context that offers inheritance (currently) to child chains when exported. This means that when any keystore in the `GLOBAL.VAR.*` namespace is published to a file, it will also include all the keys from `@GLOBAL.VAR.main` first. This feature may be expanded out to top-level project keys in later versions.
+
+You can get your super chain, via the `super` shortcut.
+
+```bash
+    bookdb super; #returns @GLOBAL.VAR.main
+    bookdb super ls; #list all keytores of the super chain
+```
+**Cascading**
+While the super chain is standard to VAR, its cascading behavior is opt-in and guarded by a global variable `SUPER_CASCADING`.
+
+
+###  Changing the Workspace Cursor 
+
+By default the active chain can be changed alongside any command as an argument; `bookdb` will respect the request as first-class behavior. You can also set the cursor silently using the `noop` (no-operation) command.
+
+```bash
+  
+  bookdb cursor; #get the current workspace
+  
+  bookdb noop @GLOBAL.VAR.COLOR; #change the workspace to the GLOBAL keytore of COLOR
+  bookdb setv FAVORITE_COLOR="red"; #<-- no chain arg, using cached workspace
 
 ```
-@<Project_Namespace>.VAR.<Key-Value_Namespace>
- \___________________/     \__________________/
-          |                        |
-     Top-level container     A sub-folder for
-      (e.g., a project)       related variables
-```
 
-When you provide a context chain with a command (like in the Quick Start), `bookdb` does two things:
-1.  Executes the command in that specific context.
-2.  **Saves that context as your new active cursor.**
-
-This means all future commands will run in that context by default, saving you from repetitive typing. You can always see your current context with `bookdb cursor`.
 
 
 ## Advanced Usage
@@ -254,6 +380,83 @@ You can alter `bookdb`'s default behavior using environment variables, which is 
     ```
 
 
+
+## 🪜Installation
+ 
+ Instatllation is so easy it almost doesn't need instructions, but we'll spell out the steps for completeness.
+
+
+### 🤔Requirements
+
+`bookdb` features a friendly, interactive installer that handles everything for you... *except* your sqlite3 installation and how you might feel about that.
+
+#### Prerequisite: Install `sqlite3`
+
+You should have `sqlite3` installed and available in your `PATH`. You can check this by running `command -v sqlite3`. If you've never used it before, dont worry it's *pretty* lighweight and defacto on many systems.  
+
+If it's not found, here's how to install it on common systems:
+
+*   **On Debian/Ubuntu:**
+    ```bash
+    sudo apt-get update && sudo apt-get install sqlite3
+    ```
+*   **On Red Hat/CentOS/Fedora:**
+    ```bash
+    sudo yum install sqlite
+    # Or, on modern Fedora:
+    sudo dnf install sqlite3
+    ```
+*   **On macOS (with Homebrew):**
+    ```bash
+    brew install sqlite
+    ```
+
+
+### 📦BookDB Easy Install
+
+**1. Get the Repo.**
+
+Generally, `bookdb` is such a flirt that it'll try to install itself whenever it detects an anomoly in its reality anchors (dont worry, wont clobber); barring that you can install as follows:
+
+
+```bash
+# 1. Get the project repo. Duh. You cant databeez stuff without it. unless your a wizard.
+git clone https://github.com/qodeninja/bookdb.git
+cd bookdb
+
+# 2. Run the interactive interactor. You're a lizard Larry!
+./bookdb install
+```
+
+**2. What that button do?**
+
+The installer will:
+1.  Explain the actions it will take (creating directories, copying the script to `~/.local/bin/`, etc.).
+2.  Intelligently detect your shell profile (`~/.bashrc`, `.profile`, ~~`~/.zshrc`~~, etc.). 
+3.  Ask for your confirmation before making any changes.
+
+Once you grudginly approve the injection of a powerful alien tool into your unsuspecting system, it will automatically configure your ~~soul~~ shell. Adventure seekers among us can alternatively avoid all the fluff and fatigue with a well placed `-y` flag.
+
+
+**3. Restart Your ~~Soul~~ Shell**
+
+To complete the ~~assimilation~~ installation, start a new shell session or run `source ~/.bashrc` (or your appropriate profile file). The `bookdb` command will now be available everywhere.
+
+👁️ Note: once you've installed `bookdb` into your system  you wont have to use the `./` invoker anymore.
+```bash
+# Call me anytime, im here on the ... line. Commmand line.
+bookdb status
+
+# list all of my horcruxes.
+bookdb ls
+```
+
+Ok, that was the EZ PZ PART, as promised. Next comes the crazy stuff.
+
+
+
+<br>
+
 ## ☠️ Uninstallation
 
 ### One liner.
@@ -348,17 +551,17 @@ Gotta now the commands if you want to be a commander, sergeant. BTW, these all d
 | `dev_setup`             | Reset and seed the database with a standard set of test data.            | `bookdb dev_setup`                           |
 <br>
 
-<details>
-<summary><strong>A Note on Philosophy: BASHFX</strong></summary>
 
-`bookdb` is built according to a small set of principles called **BASHFX**, designed to make shell tools powerful without being rude. For you as a user, this means:
+## ⚡BashFX Principles 
+On a more 9-to-5 note, `bookdb` is built according to a set principles called **BashFX**, designed to make shell tools powerful without being rude. 
 
-*   **Self-Contained:** All installation artifacts (the database, config files, etc.) live inside a single root directory: `~/.local`.
-*   **Invisible:** `bookdb` will never create new dotfiles (`.bookdb`, etc.) in your `$HOME` directory. It keeps its mess in its own room.
-*   **Rewindable:** The `install` command has a perfect opposite in the `reset` command. This ensures the tool can be completely and cleanly removed from your system, leaving no trace.
-*   **Friendly:** The tool should be proactive in communicating its state. The interactive installer and commands like `status` and `cursor` are designed to keep you informed.
+For you as a user, this means:
 
-</details>
+*   **Self-Contained:** All installation artifacts (the database, config files, etc.) live inside a single standardized root directory: `~/.local`.
+*   **Invisible:** `bookdb` will never create new dotfiles (`.bookdb`, etc.) in your `$HOME` directory or  pollute your home with anything it generates. It keeps its mess in its own room.
+*   **Rewindable:** The automated `install` has an equally automated counterpart. The `reset` command will fully uninstall `bookdb`, removing the script, all data, and its entry from your shell profile. *Most* commands have a rewindable counterpart.
+*   **Friendly:** The tool should be proactive in communicating its state. Commands like `status` and `cursor`, and the use of clear log messages, are designed to keep you informed.
+
 
 ## ⁉️🤔 Frequently Asked Questions
 Or what I like to call, "an interpretive dance of mimes in text-only format."
@@ -407,6 +610,21 @@ DO NOT USE THIS IF:
 * Have no idea what you're doing (cuz I dont either.)
 * Are an employee at Cloudflare. JK! but dont use it in production. *side eye*
 
+## ⚠️ Beta Version
+
+  Generally, Debian-based distros with Bash 3.2+ or higher are supported, since direct manual tests of each MVP phase passed without errors, e.g. "works on my machine."
+  
+  Hypothetically any Bash 3.2+ environment might be compatible; except where certain command idioms differ by OS or implementation. `sed` is a usual suspect among others. 
+
+  **Help Us Cure Works-On-My-Machine Syndrome** and bring wider support to more folks by testing it on your system(s). 
+
+  As a self-contained script `bookdb` wont evil-mangle your stuff, so if you're willing to give er a go, and see what blows in an effort to determine cross-system support, that contribution is most welcome!
+
+  **Assume every new untested tool may cause unforeseen issues, and make sure your data/system state is recoverable before using!**
+
+  Having said that, if you accept these risks and limitations, we get the deeds did and the databeez ~~fid~~ fed.
+
+
 
 ## Testing / Compatibility
 
@@ -435,6 +653,8 @@ DO NOT USE THIS IF:
 
   * Additional Features.
     * Support read-only context-chains.
+    * Support `SUPER_CASCADING` to enable inheritance of super chain on export.
+    * Support `DISABLE_CURSOR` to require explicit chain invocation on all calls.
     * Support notes/journal namespace via the JRNL context-chain.
     * Support features/task namespace via the TASK context-chain.
     * Support bookmarks (integration with `markman` tool) via MARK context-chain.
