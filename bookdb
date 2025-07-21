@@ -74,13 +74,13 @@ stderr(){
   if [[ "$TEST_MODE" -eq 0 && -n "$opt_printer_test" && -z "$is_error_level" ]]; then
     stdoutt "${msg}"; # Use stdoutt function for redirection
     return 0;
-  fi;
+  fi
 
   # Otherwise (not in test override, or it's an error/fatal message),
   # follow normal stderr quietness rules.
   if [[ -z "$QUIET_MODE" ]] || [[ -n "$force_output" ]]; then
     printf "%b" "${msg}${xx}\n" 1>&2;
-  fi;
+  fi
   return 0;
 }
 
@@ -127,9 +127,9 @@ line(){ stderr "$LINE"; }
 
   TEST_MODE=${TEST_MODE:-1};
 
-  magic "Project ? ${BOOK_PROJECT_HOME}";
-  magic "Self ? ${BOOK_PATH} using 0 ";
-  magic "Bash ? ${APP_BOOKDB} using BASH0 ";
+  #magic "Project ? ${BOOK_PROJECT_HOME}";
+  #magic "Self ? ${BOOK_PATH} using 0 ";
+  #magic "Bash ? ${APP_BOOKDB} using BASH0 ";
 #-------------------------------------------------------------------------------
 #  XDG+
 #-------------------------------------------------------------------------------
@@ -591,11 +591,12 @@ __db_query(){
   if ! command -v sqlite3 >/dev/null 2>&1; then
     error "sqlite3 command not found.";
     return 1;
-  fi;
+  fi
+
   if [[ ! -f "${THIS_DB}" ]]; then
     error "Database file does not exist: ${THIS_DB}.";
     return 1;
-  fi;
+  fi
 
   # Wrap the entire sqlite3 call in a subshell managed by flock.
   (
@@ -610,7 +611,7 @@ __db_query(){
       printf "%b\n" "${red}SQLite Error: ${output}${xx}" >&2;
     else
       printf "%s" "${output%$'\n'}";
-    fi;
+    fi
     
     exit ${ret};
   ) 200>"${BOOK_LOCK}";
@@ -837,7 +838,7 @@ __write_keystore_to_file(){
   if [[ -z "${kvns_id}" ]]; then
     error "Internal error: Could not find ID for ${pns_name}/${kvns_name}.";
     return 1;
-  fi;
+  fi
 
   # Build and write the header
   local header_content;
@@ -847,7 +848,7 @@ __write_keystore_to_file(){
   if [[ $? -ne 0 ]]; then
     error "Failed to write header to file: ${target_file}";
     return 1;
-  fi;
+  fi
 
   # THE FIX: Retrieve data with a safe separator, then loop and format with quotes.
   local sql="SELECT var_key, var_value FROM vars WHERE kvns_id_fk = ${kvns_id} ORDER BY var_key;";
@@ -857,15 +858,15 @@ __write_keystore_to_file(){
   if [[ $? -ne 0 ]]; then
     error "Failed to retrieve variables for export.";
     return 1;
-  fi;
+  fi
   
   # Process and append each line with correct formatting
   if [[ -n "${results}" ]]; then
     echo "${results}" | while IFS="|" read -r key value; do
       # Format each line as KEY="VALUE" and append it
       printf '%s="%s"\n' "${key}" "${value}" >> "${target_file}";
-    done;
-  fi;
+    done
+  fi
   
   return 0;
 }
@@ -1050,7 +1051,7 @@ do_ls_all(){
 do_getv(){
   local ret=1;
   local key="$1";
-  if __is_empty "${key}"; then error "Usage: bookdb getv <KEY>"; return 1; fi;
+  if __is_empty "${key}"; then error "Usage: bookdb getv <KEY>"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
   local key_sql="${key//\'/\'\'}";
   local sql="SELECT var_value FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};";
@@ -1151,12 +1152,12 @@ do_find(){
   if __is_empty "${key_pattern}"; then
     error "Usage: bookdb find <KEY_PATTERN>";
     return 1;
-  fi;
+  fi
 
   # Allow for wildcard searching by default if user doesn't provide them.
   if [[ "$key_pattern" != *"%"* ]]; then
     key_pattern="%${key_pattern}%";
-  fi;
+  fi
 
   local key_sql="${key_pattern//\'/\'\'}";
   
@@ -1174,9 +1175,9 @@ do_find(){
     info "Found matching keys in the following contexts:";
     echo "${results}" | while IFS=, read -r pns kvns key; do
       info "  @%s.VAR.%s -> %s" "${pns}" "${kvns}" "${key}";
-    done;
+    done
     ret=0;
-  fi;
+  fi
   
   return "${ret}";
 }
@@ -1237,7 +1238,7 @@ do_ls(){
 # Local Variables: pns_name, name_sql, new_pns_id
 ___new_project(){
   local pns_name="$1";
-  if __is_empty "${pns_name}"; then return 1; fi;
+  if __is_empty "${pns_name}"; then return 1; fi
 
   local name_sql="${pns_name//\'/\'\'}";
   
@@ -1249,7 +1250,7 @@ ___new_project(){
     if __is_empty "${new_pns_id}"; then
       error "Failed to retrieve ID for new project '${pns_name}'.";
       return 1;
-    fi;
+    fi
     
     __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${new_pns_id});";
     log "Default key-value store 'MAIN' created/verified for project '${pns_name}'.";
@@ -1257,7 +1258,7 @@ ___new_project(){
   else
     error "Failed to create project '${pns_name}'.";
     return 1;
-  fi;
+  fi
 }
 
 ################################################################################
@@ -1279,7 +1280,7 @@ do_new(){
   if __is_empty "${what}" || __is_empty "${ns_name}"; then
     error "Usage: bookdb new <project|keyval> --ns <name>";
     return 1;
-  fi;
+  fi
   __validate_name "${ns_name}" "Namespace" || return 1;
 
   case "${what}" in
@@ -1298,13 +1299,13 @@ do_new(){
       else
         error "Failed to create key-value store '${ns_name}'. It may already exist in this project.";
         ret=1;
-      fi;
+      fi
       ;;
     (*)
       error "Invalid argument for 'new'. Use 'project' or 'keyval'.";
       ret=1;
       ;;
-  esac;
+  esac
   return "${ret}";
 }
 
@@ -1390,7 +1391,7 @@ do_backup(){
   else
       error "Backup failed.";
       return 1;
-  fi;
+  fi
 }
 
 ################################################################################
@@ -1430,10 +1431,10 @@ do_status(){
     # This part also needs to be routed through the logger for capture
     echo "${projects}" | while IFS= read -r line; do
       info "    - %s" "${line}";
-    done;
+    done
   else
     info "    (No projects found)";
-  fi;
+  fi
   
   return 0;
 }
@@ -1761,20 +1762,20 @@ do_migrate(){
   if __is_empty "${results}"; then
     log "No keystores found to migrate.";
     return 0;
-  fi;
+  fi
 
   echo "${results}" | while IFS=, read -r pns kvns; do
     local filename="${backup_dir}/${pns}_${kvns}.env";
     info "  -> Exporting %s/%s to %s" "${pns}" "${kvns}" "${filename}";
     __write_keystore_to_file "${pns}" "${kvns}" "${filename}";
-    if [[ $? -ne 0 ]]; then ret=1; fi;
-  done;
+    if [[ $? -ne 0 ]]; then ret=1; fi
+  done
 
   if [[ ${ret} -eq 0 ]]; then
     okay "Migration complete.";
   else
     error "Migration completed with errors.";
-  fi;
+  fi
   return "${ret}";
 }
 
@@ -1796,7 +1797,7 @@ do_export(){
   if [[ "${what}" != "keystore" ]]; then
     error "Usage: bookdb export keystore";
     return 1;
-  fi;
+  fi
 
   # Context is already resolved by main(), so we can just use the global variables.
   local target_filename="${BOOK_PNS_NAME}_${BOOK_KVNS_NAME}_exported.env";
@@ -2149,7 +2150,11 @@ do_install(){
   # Copy and permission the script (cp before ln -s)
   info "Installing script to '${_cp_path}'...";
 
-  [ -f "${_cp_path}" ] && rm -f "${_cp_path}";
+  [ -f "${_cp_path}" ] && {
+    warn "Found older bookdb version. Updating.";
+    rm -f "${_cp_path}"; #removing old one...
+     
+  }
 
   cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
   chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
@@ -2611,17 +2616,18 @@ main(){
   options "$@";
 
   # Set global quiet mode if the flag was passed.
-  if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi;
+  if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   
   # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
   # These commands must run before any state (like DB existence) is assumed.
   local cmd_pre_state="${ARGS[0]}";
   case "$cmd_pre_state" in
+    (rc) dev_rc; exit 0; ;;
     (help|usage) usage; exit 1; ;;
     (install) do_install; exit $?; ;;
     (reset) do_reset; exit $?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
-  esac;
+  esac
 
   # If we are here, the command was not a pre-state shortcut.
   # Now, we can safely assume the application should be installed.
@@ -2635,7 +2641,7 @@ main(){
     if is_dev; then
       log "DEV_MODE: Auto-installing on first run.";
       do_install;
-      if [[ $? -ne 0 ]]; then fatal "Initial auto-installation failed in DEV_MODE."; fi;
+      if [[ $? -ne 0 ]]; then fatal "Initial auto-installation failed in DEV_MODE."; fi
     else
       local confirm_install;
       printf "BookDB appears to be uninstalled.\n" >&2;
@@ -2645,9 +2651,9 @@ main(){
         do_install; exit $?;
       else
         log "Installation cancelled by user. Exiting."; exit 1;
-      fi;
-    fi;
-  fi;
+      fi
+    fi
+  fi
 
   # STEP 3: RESOLVE CONTEXT.
   # This is now called *after* options are parsed and *before* dispatch.
