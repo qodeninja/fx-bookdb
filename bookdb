@@ -42,9 +42,11 @@
 
   readonly LINE="$(printf '%.0s-' {1..54})";
 
-  stderr(){ [ -z "$QUIET_MODE" ] || [ -n  $2 ] && printf "%b" "${1}${xx}\n" 1>&2; }
-  fatal(){ stderr "force" "$red$1";  exit 1; }
-  error(){ stderr "force" "$red$1"; }
+  stderr(){ [ -z "$QUIET_MODE" ] || [ -n "$2" ] && printf "%b" "${1}${xx}\n" 1>&2; }
+
+  fatal(){ stderr "$red$1" "force" ;  exit 1; }
+  error(){ stderr "$red$1" "force" ; }
+  dev(){ stderr "$red2$1" "force" ; }
   warn(){  stderr "$orange$1"; }
   okay(){  stderr "$green$1"; }
   info(){  stderr "$blue$1"; }
@@ -58,15 +60,22 @@
 #  Bootstrap
 #-------------------------------------------------------------------------------
 
+# Do not use true or false, only 0 or 1.
+
 # --- Developer & Safety Toggles ---
 # Set DEV_MODE to true to bypass all [y/N] confirmation prompts.
-DEV_MODE=${DEV_MODE:-false};
+DEV_MODE=${DEV_MODE:-1};
 
 # Set SAFE_MODE to true to automatically back up the DB before destructive actions.
-SAFE_MODE=${SAFE_MODE:-false}
+SAFE_MODE=${SAFE_MODE:-0}
 
 # Add this near the other global toggles (this is auto do not edit)
-SAFE_BACKUP_PERFORMED=false;
+SAFE_BACKUP_PERFORMED=1;
+
+# Flag to block deep install or reset functions. Preserve Database
+SOFT_INSTALL=1;
+
+TEST_MODE=${TEST_MODE:-1};
 
 # XDG+ Paths (as per BASHFX architecture)
 
@@ -86,7 +95,12 @@ readonly BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
 readonly BOOK_RC="${BOOK_ETC}/bookrc";
 readonly BOOK_DB="${BOOK_DATA}/bookdb.sqlite"; 
 
+readonly BOOK_TEST_DB="${BOOK_DATA}/bookdb-test.sqlite"; 
+
 readonly BOOK_CURSOR="${BOOK_STATE}/cursor";
+
+readonly BOOK_SHARE="${BOOK_DATA}";
+
 
 
 #-------------------------------------------------------------------------------
@@ -104,18 +118,48 @@ BOOK_KVNS_NAME=;
 
 
 #-------------------------------------------------------------------------------
+#  Better
+#-------------------------------------------------------------------------------
+
+  select_db(){
+    local other_db=$1;
+    if [ -n "$other_db" ] && [ -f "$other_db" ]; then
+      THIS_DB="$other_db";
+    elif [ "$TEST_MODE" -eq 0 ]; then
+      THIS_DB=BOOK_TEST_DB;
+    else
+      THIS_DB=BOOK_DB;
+    fi
+  }
+
+
+  is_dev(){
+    [ -n "$DEV_MODE" ] && [ "$DEV_MODE" -eq 0 ];
+  }
+
+  is_user(){
+    [ -z "$DEV_MODE" ] || [ "$DEV_MODE" -eq 1 ];
+  }
+
+  require_safe(){
+    [ -n "$SAFE_MODE" ] && [ "$SAFE_MODE" -eq 0 ];
+  }
+
+  dev_rc(){
+    is_dev && is_file "$BOOK_RC" && cat "$BOOK_RC";
+  }
+#-------------------------------------------------------------------------------
 #  STDFX
 #-------------------------------------------------------------------------------
 
-
-  _is_empty(){
+  __is_empty(){
     [[ -z "${1//[[:space:]]/}" ]];
   }
 
   is_empty(){
     local var_name;
     for var_name in "$@"; do
-      if _is_empty "${!var_name}" ; then
+      if __is_empty "${!var_name}" ; then
         return 0; # Found an empty one, success (is_empty is true)
       fi
     done;
@@ -129,7 +173,7 @@ BOOK_KVNS_NAME=;
   }
 
 
-  is_file() {
+  is_file(){
     [ -n "$1" ] && test -f "$1";
   }
 
@@ -152,7 +196,7 @@ BOOK_KVNS_NAME=;
     return 0;
   }
 
-  is_rw_file() {
+  is_rw_file(){
     [ -n "$1" ] && test -f "$1" -a -r "$1" -a -w "$1";
   }
 
@@ -256,15 +300,14 @@ __persist_cursor(){
   if [[ -z "$pns_name" || -z "$kvns_name" ]]; then
     error "Cannot persist invalid cursor (PNS: ${pns_name}, KVNS: ${kvns_name})";
     return 1;
-  fi
-  printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CURSOR}.tmp";
-  mv "${BOOK_CURSOR}.tmp" "${BOOK_CURSOR}" || fatal "Failed to write cursor file";
+  fi;
+  printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CURSOR}" || fatal "Failed to write cursor file";
   return 0;
 }
 
 __backup_db(){
   # Skip if SAFE_MODE is off or if backup was already done in this script run
-  if [[ "${SAFE_MODE}" != "true" || "${SAFE_BACKUP_PERFORMED}" == "true" ]]; then
+  if [[ "${SAFE_MODE}" != 0 || "${SAFE_BACKUP_PERFORMED}" == 0 ]]; then
     return 0;
   fi
   if [[ ! -f "${BOOK_DB}" ]]; then return 0; fi
@@ -275,7 +318,7 @@ __backup_db(){
   local daily_backup_file="${backup_dir}/bookdb-auto-backup-${today}.tar.gz";
 
   # First, mark as "handled" for this script run to prevent multiple triggers
-  SAFE_BACKUP_PERFORMED=true;
+  SAFE_BACKUP_PERFORMED=0;
 
   # Then, check if a backup for today already exists
   if [[ -f "${daily_backup_file}" ]]; then
@@ -297,7 +340,7 @@ __backup_db(){
 
 __confirm_action(){
   local prompt_msg="$1";
-  if [[ "${DEV_MODE}" == "true" ]]; then
+  if is_dev; then
     log "DEV_MODE: Auto-confirming action.";
     return 0;
   fi
@@ -315,10 +358,12 @@ __confirm_action(){
 }
 
 __resolve_context(){
+  info "Attempting to resolve context...";
   local ret=1;
   local T_pns_name=;
   local T_kvns_name=;
   local persist_needed=0;
+
   if [[ -n "${opt_context_chain}" ]]; then
     persist_needed=1;
     local clean_chain="${opt_context_chain#*@}";
@@ -330,6 +375,7 @@ __resolve_context(){
       fatal "Invalid context chain: middle part must be 'VAR' (e.g., @myproj.VAR.config)";
     fi
   fi
+
   if [[ -n "${opt_projdb}" ]]; then
     persist_needed=1;
     T_pns_name="${opt_projdb}";
@@ -347,6 +393,9 @@ __resolve_context(){
       T_kvns_name="MAIN";
     fi
   fi
+  
+  info "context pns:$T_pns_name kns:$T_kvns_name";
+
   if [[ -z "${T_pns_name}" ]]; then
       T_pns_name=$(sed -n '1p' "${BOOK_CURSOR}" 2>/dev/null || echo "GLOBAL");
   fi
@@ -357,16 +406,19 @@ __resolve_context(){
   local kvns_name_sql="${T_kvns_name//\'/\'\'}";
   local T_pns_id;
   T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';");
+
   if [[ -z "${T_pns_id}" ]]; then
     error "Project Namespace not found: '${T_pns_name}'";
     return 1;
   fi
+
   local T_kvns_id;
   T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};");
   if [[ -z "${T_kvns_id}" ]]; then
     error "Key-Value Namespace not found: '${T_kvns_name}' in project '${T_pns_name}'";
     return 1;
   fi
+
   BOOK_PNS_ID="${T_pns_id}";
   BOOK_PNS_NAME="${T_pns_name}";
   BOOK_KVNS_ID="${T_kvns_id}";
@@ -375,11 +427,12 @@ __resolve_context(){
     log "Persisting new context to cursor: ${BOOK_PNS_NAME}.${BOOK_KVNS_NAME}";
     __persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
   fi
-  ret=0;
-  return ${ret};
+
+  info "Done Resolve";
+  return 0;
 }
 
-# ___write_keystore_to_file(){
+# __write_keystore_to_file(){
 #   local pns_name="$1";
 #   local kvns_name="$2";
 #   local target_file="$3";
@@ -411,7 +464,7 @@ __resolve_context(){
 # }
 
 
-___write_keystore_to_file() {
+__write_keystore_to_file(){
   local pns_name="$1"
   local kvns_name="$2"
   local target_file="$3"
@@ -444,7 +497,7 @@ ___write_keystore_to_file() {
 }
 
 
-___find_shell_profile(){
+__find_shell_profile(){
   # if [[ -n "$ZSH_VERSION" || -f "$HOME/.zshrc" ]]; then
   #   echo "$HOME/.zshrc";
   if [[ -n "$BASH_VERSION" || -f "$HOME/.bashrc" ]]; then
@@ -457,7 +510,7 @@ ___find_shell_profile(){
   return 0;
 }
 
-___link_to_profile(){
+__link_to_profile(){
   local profile_file="$1";
   local sentinel_comment="# bookdb configuration";
   # The new single-line entry with an inline comment
@@ -475,7 +528,7 @@ ___link_to_profile(){
   fi
 }
 
-___unlink_from_profile(){
+__unlink_from_profile(){
   local profile_file="$1";
   local sentinel_comment="# bookdb configuration";
 
@@ -497,8 +550,8 @@ ___unlink_from_profile(){
 
 
 # Queries and prints all key-value pairs for a given keystore.
-# Usage: ___print_keystore_contents <project_name> <keystore_name>
-___print_keystore_contents(){
+# Usage: __print_keystore_contents <project_name> <keystore_name>
+__print_keystore_contents(){
   local pns_name="$1";
   local kvns_name="$2";
 
@@ -548,7 +601,7 @@ do_ls_all(){
         else
             echo "${keystores}" | while read -r keystore; do
                 printf "  - ${yellow}Keystore: %s${xx}\n" "${keystore}";
-                ___print_keystore_contents "${project}" "${keystore}";
+                __print_keystore_contents "${project}" "${keystore}";
             done
         fi
     done
@@ -594,7 +647,7 @@ do_setv(){
     ret=$?;
   else
     log "Updating existing variable: '${key}'";
-    local sql_update="UPDATE vars SET var_value = '${val_sql}', var_updated = ${ts} WHERE var_id = ${var_id};";
+    __db_query "UPDATE vars SET var_value = '${val_sql}', var_updated = ${ts} WHERE var_id = ${var_id};";
     __db_query "${sql_update}";
     ret=$?;
   fi
@@ -809,7 +862,7 @@ do_status(){
   return 0;
 }
 
-___pub_parse_source(){
+__pub_parse_source(){
   # This helper parses the source argument (@chain.KEY or KEY=VALUE)
   # and sets the global variables _PUB_KEY and _PUB_VALUE.
   local source_arg="$1";
@@ -889,7 +942,7 @@ do_pub(){
   fi
 
   # Use the helper to parse the source and get the key/value
-  ___pub_parse_source "${source_arg}" || return 1;
+  __pub_parse_source "${source_arg}" || return 1;
   
   if [[ "${source_arg}" != *"="* && -z "${_PUB_VALUE}" ]]; then
       error "Could not resolve a value to publish for '${_PUB_KEY}'.";
@@ -927,7 +980,7 @@ do_unpub(){
     return 1;
   fi
 
-  ___pub_parse_source "${source_arg}";
+  __pub_parse_source "${source_arg}";
   if [[ -z "${_PUB_KEY}" ]]; then
     error "Could not determine a key to unpublish.";
     return 1;
@@ -996,7 +1049,7 @@ do_decv(){
 
 do_reset(){
   local profile_file;
-  profile_file=$(___find_shell_profile);
+  profile_file=$(__find_shell_profile);
 
   if __confirm_action "This will permanently delete all bookdb data and uninstall the command. Continue?"; then
     __backup_db;
@@ -1004,7 +1057,7 @@ do_reset(){
     
     # Unlink from shell profile
     if [[ -n "${profile_file}" ]]; then
-      ___unlink_from_profile "${profile_file}";
+      __unlink_from_profile "${profile_file}";
     fi
     
     # Remove installed directories and the binary
@@ -1044,7 +1097,7 @@ do_migrate(){
   echo "${results}" | while IFS=, read -r pns kvns; do
     local filename="${backup_dir}/${pns}_${kvns}.env";
     log "  -> Exporting ${pns}/${kvns} to ${filename}";
-    ___write_keystore_to_file "${pns}" "${kvns}" "${filename}";
+    __write_keystore_to_file "${pns}" "${kvns}" "${filename}";
     if [[ $? -ne 0 ]]; then ret=1; fi
   done
 
@@ -1068,7 +1121,7 @@ do_export(){
   local target_filename="${BOOK_PNS_NAME}_${BOOK_KVNS_NAME}.env";
   log "Exporting context '@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}' to ./${target_filename}";
   
-  ___write_keystore_to_file "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${target_filename}";
+  __write_keystore_to_file "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${target_filename}";
   ret=$?;
   
   return ${ret};
@@ -1145,9 +1198,9 @@ do_import(){
   # (Confirmation and import logic remains the same)
   printf "The following ${#filtered_keys[@]} keys will be imported into context:\n" >&2;
   printf "${yellow}@%s.VAR.%s${xx} with write mode: %s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${T_writemode}" >&2;
-  printf -- "$LINE\n" >&2;
+  printf "%s\n" "$LINE" >&2;
   for key in "${filtered_keys[@]}"; do printf "  - %s\n" "$key" >&2; done
-  printf -- "$LINE\n" >&2;
+  printf "%s\n" "$LINE" >&2;
   if __confirm_action "Proceed with import?"; then
     log "Importing keys...";
     for i in "${!filtered_keys[@]}"; do
@@ -1204,59 +1257,32 @@ __setup_confirm(){
     return 1;
   fi
   
-  info "The installer will perform the following actions:\n";
+  if is_user; then 
+    info "The installer will perform the following actions:\n";
 
-  printf "  1. Create directories in: %s\n" "${BOOK_LIB}" >&2; 
-  printf "  2. Copy itself to:        %s/%s\n" "${BOOK_BIN}" "" >&2;
-  printf "  3. Modify your shell profile: %s\n" "${profile_file}" >&2;
+    printf "  1. Create directories in: %s\n" "${BOOK_LIB}" >&2; 
+    printf "  2. Copy itself to:        %s/%s\n" "${BOOK_BIN}" "" >&2;
+    printf "  3. Modify your shell profile: %s\n" "${profile_file}" >&2;
 
-  if ! __confirm_action "Proceed with full installation?"; then
-    log "Installation cancelled.";
-    return 1;
+    if ! __confirm_action "Proceed with full installation?"; then
+      log "Installation cancelled.";
+      return 1;
+    fi
+  else
+    dev "Dev mode skipped confirm prompt"
   fi
 
 }
 
 
 
-
-do_install(){
-
-  local ret=1 profile_file script_path;
-
-  profile_file=$(___find_shell_profile);
-
-
-  __setup_confirm "$profile_file" || return 1;
-  __setup_dirs;
-
-  _cp_path="${BOOK_LIB}/${BOOK_PREF}";
-
-
-  # Copy and permission the script
-  info "Installing script to ${_cp_path}...";
-
-
-
-  script_path=$(cd "$(dirname "${BOOK_PATH}")" &> /dev/null && pwd)/$(basename "${BOOK_PATH}");
-
-  ln -s "$_cp_path" "${BOOK_BIN}/${BOOK_PREF}";
-
-  cp "${script_path}" "${_cp_path}";
-  if [[ $? -ne 0 ]]; then fatal "Failed to copy script to bin directory."; fi
-
-  chmod +x "${_cp_path}";
-
-
-
-  __setup_sql;
-
-  # Generate the NEW rc file with PATH logic
-  log "Generating RC file with PATH configuration...";
-  cat << EOF > "${BOOK_RC}";
+  _get_rc_template(){
+    # This here-document replaces the fragile 'rc:bashfx' comment block.
+    # It is now used by fx_install_system to create the rc file.
+    cat <<EOF
 # bookdb runtime configuration
 export BOOK_LIB="${BOOK_LIB}";
-export BOOK_INSTALLED="true";
+export BOOK_INSTALLED=0;
 
 # Add bookdb bin to PATH if it's not already there.
 if [[ -d "${BOOK_BIN}" ]]; then
@@ -1266,14 +1292,71 @@ if [[ -d "${BOOK_BIN}" ]]; then
   esac
 fi
 EOF
+  }
 
-  # Link the RC file to the user's main shell profile
-  ___link_to_profile "${profile_file}" "source '${BOOK_RC}'";
+#todo: additional status message
+do_sanity_check(){
+ noop;
+ # print path variables ensure they are not empty and the path exists
+ # make sure symlink bin exists and its parent direct XDG+ bin in on PATH
+ # make sure rc file exists
+ # make sure the rc file source is liked to bashrc/profile
+ # make sure database file exists
+}
 
-  printf "\n[OKAY] Installation complete!\n\n" >&2;
-  printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
-  ret=0;
-  return ${ret};
+do_install(){
+
+  local ret=1 profile_file script_path;
+
+  profile_file=$(__find_shell_profile);
+
+
+  __setup_confirm "$profile_file" || return 1;
+  __setup_dirs;
+
+  _cp_path="${BOOK_LIB}/${BOOK_PREF}";
+  _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+
+
+  # Copy and permission the script
+  info "Installing script to ${_cp_path}...";
+
+
+  script_path=$(readlink -f "${BOOK_PATH}");
+
+  cp "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory.";
+  chmod +x "${_cp_path}";
+
+
+
+  if [ ! -s "${_ln_path}" ]; then
+    ln -s "$_cp_path" "${_ln_path}" || fatal "Failed to create symlink in bin directory.";
+  else
+    warn "Bin symlink already set at $_ln_path";
+  fi
+
+
+  _get_rc_template > "$BOOK_RC" || { error "Failed to save rc file."; return 1; }
+
+
+  if [ -f $BOOK_RC ]; then
+    okay "Book RC ready";
+    # Link the RC file to the user's main shell profile
+    __link_to_profile "${profile_file}" "source '${BOOK_RC}'";
+  else
+    fatal "Book RC file failed to write!";
+  fi
+
+  __setup_sql;
+
+  if is_user; then
+    printf "\n[OKAY] Installation complete!\n\n" >&2;
+    printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
+  else
+    dev "refresh required."
+  fi
+  
+  return 0;
 }
 
 
@@ -1288,27 +1371,81 @@ do_tdump(){
   return $?;
 }
 
+__clean_install(){
+
+  info "[+] Running Clean Install";
+  do_reset   ||  fatal "Reset cancelled during dev-setup."; 
+  do_install || fatal "Installation failed during dev-setup.";
+
+}
+
+# THESE ARE IN PROGRESS DO NOT REMOVE
+# 1 arg
+INS_INTO_PNS="INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('%s')";
+SEL_ID_FROM_PNS="SELECT pns_id FROM project_ns WHERE pns_name ='%s'";
+
+# 2 args
+INS_INTO_KNS="INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('%s', %s);";
+SEL_ID_FROM_KNS="SELECT kvns_id from keyval_ns WHERE kvns_name '%s' AND pns_id_fk ='%s'";
+
+# 3 args
+INS_INTO_VARS="INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('%s', '%s', '%s');";
+
+# quick and dirty
+__samples=(
+  "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('myapp');"
+  "SELECT pns_id FROM project_ns WHERE pns_name = 'myapp';"
+  "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';"
+  "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('secrets', %s);"
+  "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('apis', %s);"
+  "SELECT kvns_id from keyval_ns WHERE kvns_name = 'secrets' AND pns_id_fk = %s;"
+  "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('DB_PASS', 'supersecret', %s);"
+  "SELECT kvns_id from keyval_ns WHERE kvns_name = 'apis' AND pns_id_fk = %s;"
+  "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', %s);"
+);
+
+# needs finishing
+__db_query_sample(){
+  local idx=$1 str qry; shift; args="${@}";
+  info "[+] Loading Sample Query [$idx]";
+  qry="${___samples[$idx]}";
+  # populate qry template with args up 1-3 args max
+  # __db_query the query string and return the value
+  # ...
+  noop;
+}
+
+# todo: the calls to sample are incomplete here need fixing before use
+__sample_queries(){
+  local myapp_id global_id secrets_id apis_id;
+  info "[+] Settingup Sample Queries";
+  __db_query_sample "1";
+  myapp_id=$(__db_query_sample 2);
+
+  global_id=$(__db_query_sample 3);
+  __db_query_sample 4;
+  __db_query_sample 5;
+
+
+  secrets_id=$(__db_query_sample 6);
+  __db_query_sample 7;
+
+
+  apis_id=$(__db_query_sample 8);
+  __db_query_sample 9;
+
+  noop;
+}
+
 do_dev_setup(){
-  log "Starting developer test setup...";
-  do_reset;
-  if [[ $? -ne 0 ]]; then fatal "Reset cancelled during dev-setup."; fi
-  do_install;
-  if [[ $? -ne 0 ]]; then fatal "Installation failed during dev-setup."; fi
-  log "Inserting test data via direct queries...";
-  __db_query "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('myapp');";
-  local myapp_id;
-  myapp_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'myapp';");
-  local global_id;
-  global_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';");
-  __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('secrets', ${global_id});";
-  __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('apis', ${myapp_id});";
-  local secrets_id;
-  secrets_id=$(__db_query "SELECT kvns_id from keyval_ns WHERE kvns_name = 'secrets' AND pns_id_fk = ${global_id};");
-  __db_query "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('DB_PASS', 'supersecret', ${secrets_id});";
-  local apis_id;
-  apis_id=$(__db_query "SELECT kvns_id from keyval_ns WHERE kvns_name = 'apis' AND pns_id_fk = ${myapp_id};");
-  __db_query "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', ${apis_id});";
+  local install_skip=$1;
+
+  [ -z "$install_skip" ] && __clean_install;
+
+  # todo: __sample_queries finish query sample function
+
   log "Developer setup complete.";
+  __resolve_context;
 
 # import test block
   log "Creating example .env files for import tests...";
@@ -1477,15 +1614,15 @@ dispatch(){
     (decv) do_decv "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
     (ls) do_ls "${ARGS[1]}"; ret=$?; ;;
     (find) do_find "${ARGS[1]}"; ret=$?; ;;
-    (new) do_new; ret=$?; ;;
-    (del) do_del; ret=$?; ;;
+    (new) do_new "${ARGS[@]:1}"; ret=$?; ;;
+    (del) do_del "${ARGS[@]:1}"; ret=$?; ;;
     (pub) do_pub "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
     (unpub)   do_unpub "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
     (tables) do_tables; ret=$?; ;;
     (tdump) do_tdump "${ARGS[1]}"; ret=$?; ;;
     (reset) do_reset; ret=$?; ;;
     (install) do_install; ret=$?; ;;
-    (dev_setup) do_dev_setup; ret=$?; ;;
+    (dev_setup) do_dev_setup "${ARGS[1]}"; ret=$?; ;; #supports skip install
     (backup) do_backup; ret=$?; ;;
     (*) error "Unknown command: ${cmd}"; usage; ;;
   esac;
@@ -1496,11 +1633,14 @@ main(){
   # Handle simple, self-contained commands that must run regardless of installation state.
   # They are called directly and exit immediately, bypassing the main options parser.
   case "$1" in
-    (help)_ usage; exit 1; ;;
+    (help) usage; exit 1; ;;
     (reset)
       # Manually parse -y for this specific case before calling the function.
       if [[ "$2" == "-y" || "$2" == "--yes" ]]; then opt_yes=1; fi
       do_reset; exit $?;
+      ;;
+    (rc)
+      dev_rc; exit $?;
       ;;
     (install)
       do_install; exit $?;
@@ -1525,7 +1665,7 @@ main(){
 
   # If not installed, check for DEV_MODE or prompt the user.
   if [[ ! -f "${BOOK_DB}" ]]; then
-    if [[ "${DEV_MODE}" == "true" ]]; then
+    if is_dev; then
       log "DEV_MODE: Auto-installing on first run.";
       do_install;
     else

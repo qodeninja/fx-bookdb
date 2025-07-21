@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
+
 #
 # Full Test Suite for bookdb
 # This script runs through all major commands to verify functionality.
 # It cleans up after itself and provides clear output for each step.
 #
 
+
+
 # Setup
 # Exit immediately if a command exits with a non-zero status.
 set -e
-# Print each command to the terminal before executing it.
-#set -x
 
-# Define some colors for clear output headers
+
+
+#-------------------------------------------------------------------------------
+# Minimum Stderr 
+#-------------------------------------------------------------------------------
+    
   readonly  red2=$'\x1B[38;5;197m';
   readonly  red=$'\x1B[31m';
   readonly  orange=$'\x1B[38;5;214m';
@@ -31,52 +37,114 @@ set -e
   readonly  grey2=$'\x1B[38;5;240m';
   readonly  xx=$'\x1B[0m'; 
 
-readonly LINE="$(printf '%.0s-' {1..54})";
+  readonly LINE="$(printf '%.0s-' {1..54})";
 
-line(){ printf "$LINE"; >&2; }
 
-__printx() {
-  local text=$1 color=$2 prefix=$3 stream=${4:-2}
-  local color_code=${!color:-$white2}
-  [ -n "$text" ] && printf "%b" "${color_code}${prefix}${text}${x}" >&$stream
-}
+  stderr(){ [ -z "$QUIET_MODE" ] || [ -n "$2" ] && printf "%b" "${1}${xx}\n" 1>&2; }
 
-__banner() {
-    local text="$1"; local color="$2"; local fill_char="${3:--}"  width;
-    color=${!color:-$white2}
-    # Get terminal width, defaulting to 80 if tput is not available
-    width=$(tput cols 2>/dev/null || echo 80);
+  fatal(){ stderr "$red$1" "force" ;  exit 1; }
+  error(){ stderr "$red$1" "force" ; }
+  warn(){  stderr "$orange$1"; }
+  okay(){  stderr "$green$1"; }
+  info(){  stderr "$blue$1"; }
+  magic(){ stderr "$purple$1"; }   
+  trace(){ stderr "$grey$1"; } 
+  log(){ stderr "$grey$1"; } 
+  line(){ stderr "$LINE";  }
 
-    # The visible text block includes the text plus two spaces on each side
-    local text_block_len=$(( ${#text} + 4 ));
+  # vanity printer
+  __banner() {
+      local text="$1"; local color="$2"; local fill_char="${3:--}"  width;
+      color=${!color:-$white2}
+      # Get terminal width, defaulting to 80 if tput is not available
+      width=$(tput cols 2>/dev/null || echo 80);
 
-    # If the text is wider than the screen, just print it centered and colored
-    if (( text_block_len >= width )); then
-        printf "\n%b%s%b\n" "${color}" "  ${text}  " "" "green"; >&2;
-        return 0;
+      # The visible text block includes the text plus two spaces on each side
+      local text_block_len=$(( ${#text} + 4 ));
+
+      # If the text is wider than the screen, just print it centered and colored
+      if (( text_block_len >= width )); then
+          printf "\n%b%s%b\n" "${color}" "  ${text}  " "" "green"; >&2;
+          return 0;
+      fi
+
+      # Calculate how many filler characters are needed
+      local total_filler_len=$((width - text_block_len));
+      local left_filler_len=$((total_filler_len / 2));
+      local right_filler_len=$((total_filler_len - left_filler_len));
+
+      # Build the left and right filler bars
+      # Using a loop for maximum portability (avoids issues with seq or brace expansion)
+      local left_bar=""
+      for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done
+      
+      local right_bar=""
+      for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done
+
+      # Print the final banner to stderr
+      # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
+      printf "\n%b  %s%s%s  %b\n" "${color}" "${left_bar}"  "${text}"  "${right_bar}" "${xx}" >&2
+  }
+
+  __confirm_action(){
+    local prompt_msg="$1";
+    if [[ "${DEV_MODE}" == "true" ]]; then
+      log "DEV_MODE: Auto-confirming action.";
+      return 0;
+    fi
+    local confirm;
+    printf "${yellow}%s${xx} [y/N]: " "${prompt_msg}" >&2;
+    read confirm;
+    if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
+      return 0;
+    else
+      return 1;
+    fi
+  }
+
+
+#-------------------------------------------------------------------------------
+# Minimum Stderr 
+#-------------------------------------------------------------------------------
+    
+  # returns the mode that which found. is expecting is passed, the mode found has to match
+  # error if expecting doesnt match mode. 0 runtime 1 local
+  __get_mode(){
+
+    local expecting=${1:-} ret;
+    BOOKDB=$(which bookdb);
+
+    if [[ "$BOOKDB" =~ "fx-bookdb" ]]; then
+      TEST_MODE=local;
+      warn "Testbook is using local project bookdb ($BOOKDB)";
+      ret=1;
+    else
+      TEST_MODE=runtime;
+      okay "Testbook is using bin bookdb ($BOOKDB)";
+      ret=0;
     fi
 
-    # Calculate how many filler characters are needed
-    local total_filler_len=$((width - text_block_len));
-    local left_filler_len=$((total_filler_len / 2));
-    local right_filler_len=$((total_filler_len - left_filler_len));
+  }
 
-    # Build the left and right filler bars
-    # Using a loop for maximum portability (avoids issues with seq or brace expansion)
-    local left_bar=""
-    for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done
-    
-    local right_bar=""
-    for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done
 
-    # Print the final banner to stderr
-    # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
-    printf "\n%b  %s%s%s  %b\n" "${color}" "${left_bar}"  "${text}"  "${right_bar}" "${xx}" >&2
-}
+
+
+#-------------------------------------------------------------------------------
+# Tests
+#-------------------------------------------------------------------------------
+main(){    
+
+__banner "Which Bookdb Mode?" "purple";
+
+__get_mode;
 
 __banner "Phase 0: Initial Setup & State Verification" "green";
 # Ensure we have a clean, predictable installation with test data
-bookdb dev_setup -y;
+
+$BOOKDB dev_setup 1 -y; #one blocks reset/deletes
+
+export PATH="/home/nulltron/.local/bin/fx:$PATH";
+hash -r;
 
 # Verify initial state with read-only commands
 bookdb status;
@@ -200,7 +268,7 @@ rm -rf bookdb_fullbak_*;
 
 __banner "Phase 6: Final Reset" "green";
 # Test the full reset and uninstall command
-bookdb reset -y
+# bookdb reset -y
 
 
 # Teardown
@@ -208,3 +276,6 @@ bookdb reset -y
 set +x
 
 __banner "\n\n✅ All commands tested successfully! The system has been reset." "green";
+}
+
+main "${@}";
