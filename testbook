@@ -141,10 +141,9 @@ __get_mode;
 __banner "Phase 0: Initial Setup & State Verification" "green";
 # Ensure we have a clean, predictable installation with test data
 
-$BOOKDB dev_setup 1 -y; #one blocks reset/deletes
+bookdb dev_setup 1 -y; #one blocks reset/deletes
 
-export PATH="/home/nulltron/.local/bin/fx:$PATH";
-hash -r;
+
 
 # Verify initial state with read-only commands
 bookdb status;
@@ -268,7 +267,7 @@ rm -rf bookdb_fullbak_*;
 
 __banner "Phase 6: Final Reset" "green";
 # Test the full reset and uninstall command
-# bookdb reset -y
+bookdb reset -y
 
 
 # Teardown

@@ -76,7 +76,7 @@
   SAFE_BACKUP_PERFORMED=1;
 
   # Flag to block deep install or reset functions. Preserve Database
-  SOFT_INSTALL=1;
+  SOFT_RESET=1;
 
   TEST_MODE=${TEST_MODE:-1};
 
@@ -211,9 +211,11 @@ is_integer(){
 
   # command for testing options and flow
   # silent return if no text set
+  # noop is available to setup context chain without an explicit user command
   noop(){ [ -n "$1" ] && info "NOOP: [$1]";  return 0; }
 
   #debug command for incomplete execution
+  # noimp skips dispatcher
   noimp(){ [ -n "$1" ] && ctx="[$1]"; warn "NOIMP: ${FUNCNAME[1]} $ctx";  return 1; }
 
   #debug command for unavailable features
@@ -1094,19 +1096,25 @@ do_reset(){
 
   if __confirm_action "This will permanently delete all bookdb data and uninstall the command. Continue?"; then
     __backup_db;
-    log "Proceeding with full reset and uninstall...";
     
     # Unlink from shell profile
     if [[ -n "${profile_file}" ]]; then
       __unlink_from_profile "${profile_file}";
-    fi
-    
-    # Remove installed directories and the binary
-    rm -rf "${BOOK_SHARE}" "${BOOK_ETC}" "${BOOKDB_STATE_DIR}";
-    rm -f "${BOOK_LIB}/${BOOK_PREF}";
-    rm -f "${BOOK_BIN}/${BOOK_PREF}";
+    fi;
 
-    
+    if [[ "${SOFT_RESET}" -eq 0 ]]; then # If SOFT_RESET is enabled (0)
+      log "Proceeding with SOFT RESET: Preserving bookdb executable, symlink, and database.";
+      # Only remove config and state files/directories
+      rm -rf "${BOOK_ETC}" "${BOOK_STATE}";
+      # Do NOT remove BOOK_LIB/${BOOK_PREF}, BOOK_BIN/${BOOK_PREF}, or BOOK_DATA (which is BOOK_SHARE)
+    else
+      log "Proceeding with FULL RESET: Deleting all bookdb data and artifacts.";
+      # Remove installed directories and the binary
+      rm -rf "${BOOK_DATA}" "${BOOK_ETC}" "${BOOK_STATE}";
+      rm -f "${BOOK_LIB}/${BOOK_PREF}";
+      rm -f "${BOOK_BIN}/${BOOK_PREF}";
+    fi;
+
     printf "\n[OKAY] Reset and uninstall complete.\n\n" >&2;
     printf "To clear your shell's command cache, run the following command:\n\n" >&2;
     printf "    hash -r\n\n" >&2;
@@ -1115,7 +1123,7 @@ do_reset(){
   else
     log "Reset cancelled.";
     return 1;
-  fi
+  fi;
 }
 
 do_migrate(){
@@ -1446,35 +1454,44 @@ __samples=(
   "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', %s);"
 );
 
-# needs finishing
 __db_query_sample(){
-  local idx=$1 str qry; shift; args="${@}";
-  info "[+] Loading Sample Query [$idx]";
-  qry="${___samples[$idx]}";
-  # populate qry template with args up 1-3 args max
-  # __db_query the query string and return the value
-  # ...
-  noop;
+  local idx="$1";
+  local qry_template="${__samples[idx]}";
+  shift;
+  local formatted_query;
+  # Properly quote string arguments for SQL insertion
+  local quoted_args=();
+  for arg in "$@"; do
+    # Check if the argument is a number (integer or float)
+    if [[ "$arg" =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]]; then
+      quoted_args+=("$arg");
+    else
+      # Escape single quotes within the string and wrap in single quotes
+      quoted_args+=("'${arg//'/''}'");
+    fi
+  done
+  printf -v formatted_query "${qry_template}" "${quoted_args[@]}";
+  __db_query "${formatted_query}";
 }
 
 # todo: the calls to sample are incomplete here need fixing before use
 __sample_queries(){
   local myapp_id global_id secrets_id apis_id;
   info "[+] Settingup Sample Queries";
-  __db_query_sample "1";
-  myapp_id=$(__db_query_sample 2);
+  __db_query_sample 0; # Insert myapp
+  myapp_id=$(__db_query_sample 1); # Select myapp_id
 
-  global_id=$(__db_query_sample 3);
-  __db_query_sample 4;
-  __db_query_sample 5;
-
-
-  secrets_id=$(__db_query_sample 6);
-  __db_query_sample 7;
+  global_id=$(__db_query_sample 2); # Select global_id
+  __db_query_sample 3 "secrets" "${myapp_id}"; # Insert secrets for myapp
+  __db_query_sample 4 "apis" "${myapp_id}"; # Insert apis for myapp
 
 
-  apis_id=$(__db_query_sample 8);
-  __db_query_sample 9;
+  secrets_id=$(__db_query_sample 5 "secrets" "${myapp_id}"); # Select secrets_id
+  __db_query_sample 6 "DB_PASS" "supersecret" "${secrets_id}"; # Insert DB_PASS
+
+
+  apis_id=$(__db_query_sample 7 "apis" "${myapp_id}"); # Select apis_id
+  __db_query_sample 8 "GOOGLE_API_KEY" "key-for-google" "${apis_id}"; # Insert GOOGLE_API_KEY
 
   noop;
 }
@@ -1482,9 +1499,12 @@ __sample_queries(){
 do_dev_setup(){
   local install_skip=$1;
 
+  # Set SOFT_RESET to 0 (true) for dev_setup to prevent full reset
+  SOFT_RESET=0;
+
   [ -z "$install_skip" ] && __clean_install;
 
-  # todo: __sample_queries finish query sample function
+  __sample_queries;
 
   log "Developer setup complete.";
   __resolve_context;
