@@ -9,7 +9,9 @@
 
   readonly BOOK_PREF='bookdb';
   readonly BOOK_NAME="$SELF";
+
   readonly BOOK_ARGS=("${@}");
+
   readonly BOOK_PPID="$$";
   readonly BOOK_PATH="$0";
   
@@ -51,57 +53,63 @@
   okay(){  stderr "$green$1"; }
   info(){  stderr "$blue$1"; }
   magic(){ stderr "$purple$1"; }   
-  trace(){ stderr "$grey$1"; } 
+  trace(){ stderr "...$grey$1"; } 
   log(){ stderr "$grey$1"; } 
   line(){ stderr "$LINE";  }
 
 
+
 #-------------------------------------------------------------------------------
-#  Bootstrap
+#  Flags
 #-------------------------------------------------------------------------------
 
-# Do not use true or false, only 0 or 1.
+  # Do not use true or false, only 0 or 1.
 
-# --- Developer & Safety Toggles ---
-# Set DEV_MODE to true to bypass all [y/N] confirmation prompts.
-DEV_MODE=${DEV_MODE:-1};
+  # --- Developer & Safety Toggles ---
+  # Set DEV_MODE to true to bypass all [y/N] confirmation prompts.
+  DEV_MODE=${DEV_MODE:-1};
 
-# Set SAFE_MODE to true to automatically back up the DB before destructive actions.
-SAFE_MODE=${SAFE_MODE:-0}
+  # Set SAFE_MODE to true to automatically back up the DB before destructive actions.
+  SAFE_MODE=${SAFE_MODE:-0}
 
-# Add this near the other global toggles (this is auto do not edit)
-SAFE_BACKUP_PERFORMED=1;
+  # Add this near the other global toggles (this is auto do not edit)
+  SAFE_BACKUP_PERFORMED=1;
 
-# Flag to block deep install or reset functions. Preserve Database
-SOFT_INSTALL=1;
+  # Flag to block deep install or reset functions. Preserve Database
+  SOFT_INSTALL=1;
 
-TEST_MODE=${TEST_MODE:-1};
-
-# XDG+ Paths (as per BASHFX architecture)
-
-# ref: CHANGE TO BASHFX XDG
-_XDG_HOME="${HOME}/.local";
-_XDG_PREF="fx/${BOOK_PREF}";
-
-readonly BOOK_LIB="${_XDG_HOME}/lib/fx/app"; #special namespace for external apps
-
-readonly BOOK_BIN="${_XDG_HOME}/bin/fx";
-readonly BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
-readonly BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; 
-
-readonly BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
-readonly BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
-
-readonly BOOK_RC="${BOOK_ETC}/bookrc";
-readonly BOOK_DB="${BOOK_DATA}/bookdb.sqlite"; 
-
-readonly BOOK_TEST_DB="${BOOK_DATA}/bookdb-test.sqlite"; 
-
-readonly BOOK_CURSOR="${BOOK_STATE}/cursor";
-
-readonly BOOK_SHARE="${BOOK_DATA}";
+  TEST_MODE=${TEST_MODE:-1};
 
 
+
+#-------------------------------------------------------------------------------
+#  XDG+
+#-------------------------------------------------------------------------------
+
+  # ref: CHANGE TO BASHFX XDG
+  _XDG_HOME="${HOME}/.local";
+  _XDG_PREF="fx/${BOOK_PREF}";
+
+  readonly BOOK_LIB="${_XDG_HOME}/lib/fx/app"; #special namespace for external apps
+
+  readonly BOOK_BIN="${_XDG_HOME}/bin/fx";
+  readonly BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
+  readonly BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; 
+
+  readonly BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
+  readonly BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
+
+  readonly BOOK_RC="${BOOK_ETC}/bookrc";
+  readonly BOOK_DB="${BOOK_DATA}/bookdb.sqlite"; #THIS_DB var is used instead now. select_db sets this.
+
+  readonly BOOK_TEST_DB="${BOOK_DATA}/bookdb-test.sqlite"; 
+
+  readonly BOOK_CURSOR="${BOOK_STATE}/cursor";
+
+  readonly BOOK_SHARE="${BOOK_DATA}";
+
+
+  
 
 #-------------------------------------------------------------------------------
 #  Bootstrap
@@ -109,6 +117,7 @@ readonly BOOK_SHARE="${BOOK_DATA}";
 
 # Global array to hold arguments after options are parsed.
 ARGS=();
+
 # Global context state variables
 BOOK_PNS_ID=;
 BOOK_PNS_NAME=;
@@ -117,37 +126,7 @@ BOOK_KVNS_NAME=;
 
 
 
-#-------------------------------------------------------------------------------
-#  Better
-#-------------------------------------------------------------------------------
 
-  select_db(){
-    local other_db=$1;
-    if [ -n "$other_db" ] && [ -f "$other_db" ]; then
-      THIS_DB="$other_db";
-    elif [ "$TEST_MODE" -eq 0 ]; then
-      THIS_DB=BOOK_TEST_DB;
-    else
-      THIS_DB=BOOK_DB;
-    fi
-  }
-
-
-  is_dev(){
-    [ -n "$DEV_MODE" ] && [ "$DEV_MODE" -eq 0 ];
-  }
-
-  is_user(){
-    [ -z "$DEV_MODE" ] || [ "$DEV_MODE" -eq 1 ];
-  }
-
-  require_safe(){
-    [ -n "$SAFE_MODE" ] && [ "$SAFE_MODE" -eq 0 ];
-  }
-
-  dev_rc(){
-    is_dev && is_file "$BOOK_RC" && cat "$BOOK_RC";
-  }
 #-------------------------------------------------------------------------------
 #  STDFX
 #-------------------------------------------------------------------------------
@@ -226,7 +205,69 @@ is_integer(){
   return $?;
 }
 
-#
+#-------------------------------------------------------------------------------
+# Chad Functions
+#-------------------------------------------------------------------------------
+
+  # command for testing options and flow
+  # silent return if no text set
+  noop(){ [ -n "$1" ] && info "NOOP: [$1]";  return 0; }
+
+  #debug command for incomplete execution
+  noimp(){ [ -n "$1" ] && ctx="[$1]"; warn "NOIMP: ${FUNCNAME[1]} $ctx";  return 1; }
+
+  #debug command for unavailable features
+  nosup(){ [ -n "$1" ] && ctx="[$1]"; warn "NOSUP: ${FUNCNAME[1]} $ctx";  return 1; }
+
+  #debug command for todo items
+  todo(){ [ -n "$1" ] && ctx="[$1]"; warn "TODO: ${FUNCNAME[1]} $ctx";  return 1; }
+
+#-------------------------------------------------------------------------------
+#  Tools
+#-------------------------------------------------------------------------------
+
+  bootstap(){
+    local ret=1;
+    if is_file "$BOOK_RC"; then
+      source "$BOOK_RC";ret=$?;
+    else
+      noimp "ignore missing rc file";
+      readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-BOOK_PATH}"
+    fi
+    if is_dev; then
+      magic "Bookdb started from $BOOK_PATH";
+    fi
+  }
+
+  select_db(){
+    local other_db=$1;
+    if [ -n "$other_db" ] && [ -f "$other_db" ]; then
+      THIS_DB="$other_db";
+    elif [ "$TEST_MODE" -eq 0 ]; then
+      THIS_DB="$BOOK_TEST_DB";
+    else
+      THIS_DB="$BOOK_DB";
+    fi
+    #todo: test the database that was selected
+    # if its not there try to create it?
+  }
+
+
+  is_dev(){
+    [ -n "$DEV_MODE" ] && [ "$DEV_MODE" -eq 0 ];
+  }
+
+  is_user(){
+    [ -z "$DEV_MODE" ] || [ "$DEV_MODE" -eq 1 ];
+  }
+
+  require_safe(){
+    [ -n "$SAFE_MODE" ] && [ "$SAFE_MODE" -eq 0 ];
+  }
+
+  dev_rc(){
+    is_dev && is_file "$BOOK_RC" && cat "$BOOK_RC";
+  }
 
 #-------------------------------------------------------------------------------
 #  Helpers
@@ -282,11 +323,11 @@ __db_query(){
     error "sqlite3 command not found. It is a required dependency.";
     return 1;
   fi
-  if [[ ! -f "${BOOK_DB}" ]]; then
-    error "Database file does not exist: ${BOOK_DB}";
+  if [[ ! -f "${THIS_DB}" ]]; then
+    error "Database file does not exist: ${THIS_DB}";
     return 1;
   fi
-  sqlite3 "$@" "${BOOK_DB}" "${query}";
+  sqlite3 "$@" "${THIS_DB}" "${query}";
   ret=$?;
   if [[ ${ret} -ne 0 ]]; then
     error "Database query failed for: ${query}";
@@ -310,7 +351,7 @@ __backup_db(){
   if [[ "${SAFE_MODE}" != 0 || "${SAFE_BACKUP_PERFORMED}" == 0 ]]; then
     return 0;
   fi
-  if [[ ! -f "${BOOK_DB}" ]]; then return 0; fi
+  if [[ ! -f "${THIS_DB}" ]]; then return 0; fi
 
   local today;
   today=$(date +%Y-%m-%d);
@@ -329,7 +370,7 @@ __backup_db(){
   mkdir -p "${backup_dir}" || error "Could not create backup directory.";
   log "SAFE_MODE: Performing daily auto-backup to ${daily_backup_file}";
   # We only back up the database file for the automatic safety backup
-  tar -czf "${daily_backup_file}" -C "$(dirname "${BOOK_DB}")" "$(basename "${BOOK_DB}")";
+  tar -czf "${daily_backup_file}" -C "$(dirname "${THIS_DB}")" "$(basename "${THIS_DB}")";
   
   if [[ $? -ne 0 ]]; then
     error "Auto-backup failed!";
@@ -852,7 +893,7 @@ do_cursor(){
 
 do_status(){
   printf "--- BookDB Status ---\n" >&2;
-  printf "  ${blue}Database File:${xx} %s\n" "${BOOK_DB}" >&2;
+  printf "  ${blue}Database File:${xx} %s\n" "${THIS_DB}" >&2;
   printf "  ${blue}Cursor File:${xx}   %s\n" "${BOOK_CURSOR}" >&2;
   printf "  ${blue}Active Cursor:${xx} ${yellow}@%s.VAR.%s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" >&2;
   printf "  ${blue}Projects:${xx}\n" >&2;
@@ -1223,7 +1264,7 @@ __setup_sql(){
   log "Creating/verifying database schema...";
 
   # Create the database schema
-  touch "${BOOK_DB}" || fatal "Failed to create database file";
+  touch "${THIS_DB}" || fatal "Failed to create database file";
 
   local sql_create_pns="CREATE TABLE IF NOT EXISTS project_ns (pns_id INTEGER PRIMARY KEY, pns_name TEXT UNIQUE NOT NULL);";
   local sql_create_kvns="CREATE TABLE IF NOT EXISTS keyval_ns (kvns_id INTEGER PRIMARY KEY, kvns_name TEXT NOT NULL, pns_id_fk INTEGER, FOREIGN KEY(pns_id_fk) REFERENCES project_ns(pns_id) ON DELETE CASCADE, UNIQUE(kvns_name, pns_id_fk));";
@@ -1281,6 +1322,7 @@ __setup_confirm(){
     # It is now used by fx_install_system to create the rc file.
     cat <<EOF
 # bookdb runtime configuration
+export BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME}"; #install from project
 export BOOK_LIB="${BOOK_LIB}";
 export BOOK_INSTALLED=0;
 
@@ -1360,7 +1402,7 @@ do_install(){
 }
 
 
-do_tables(){ printf "Tables in %s:\n" "${BOOK_DB}" >&2; __db_query ".tables" >&2; return $?; };
+do_tables(){ printf "Tables in %s:\n" "${THIS_DB}" >&2; __db_query ".tables" >&2; return $?; };
 
 do_tdump(){
   local table_name="$1";
@@ -1604,6 +1646,7 @@ dispatch(){
   case "$cmd" in
     (st|status) do_status; ret=$?; ;;
     (c|cursor) do_cursor; ret=$?; ;;
+    (noop) noop "${ARGS[1]}";  ret=0;;
     (export) do_export "${ARGS[1]}"; ret=$?; ;;
     (import) do_import "${ARGS[1]}"; ret=$?; ;;
     (migrate) do_migrate; ret=$?; ;;
@@ -1630,10 +1673,15 @@ dispatch(){
 }
 
 main(){
+
+  bootstap; #check if rc file is available, if it is, we already have PROJECT_HOME defined.
+  select_db; #automatically switch to test database if TEST_MODE detected.
+
   # Handle simple, self-contained commands that must run regardless of installation state.
   # They are called directly and exit immediately, bypassing the main options parser.
   case "$1" in
     (help) usage; exit 1; ;;
+    (noimp) noimp; exit 0; ;;
     (reset)
       # Manually parse -y for this specific case before calling the function.
       if [[ "$2" == "-y" || "$2" == "--yes" ]]; then opt_yes=1; fi
@@ -1656,7 +1704,7 @@ main(){
       ;;
     (dev_setup)
       if [[ "$2" == "-y" || "$2" == "--yes" ]]; then opt_yes=1; fi
-      do_dev_setup; exit $?;
+        do_dev_setup; exit $?;
       ;;
   esac;
 
@@ -1664,7 +1712,7 @@ main(){
   # Now, proceed with the normal installation check and full options parsing.
 
   # If not installed, check for DEV_MODE or prompt the user.
-  if [[ ! -f "${BOOK_DB}" ]]; then
+  if [[ ! -f "${THIS_DB}" ]]; then
     if is_dev; then
       log "DEV_MODE: Auto-installing on first run.";
       do_install;
