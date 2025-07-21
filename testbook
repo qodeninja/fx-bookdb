@@ -1,21 +1,25 @@
-#!/usr/bin/env bash
 
+#!/usr/bin/env bash
 #
 # Full Test Suite for bookdb
 # This script runs through all major commands to verify functionality.
 # It cleans up after itself and provides clear output for each step.
 #
-
-
+# portable: dirname, readlink, mkdir, rm, grep, echo, printf, ls, date, tar, cut
+# builtins: set, readonly, local, if, case, while, test, read, printf, exit, source, command
+#
 
 # Setup
 # Exit immediately if a command exits with a non-zero status.
-set -e
+#set -e
 
-
+# --- Globals for Testing ---
+# Path to the bookdb script being tested. Adjust if bookdb.txt is not in the parent directory.
+readonly BOOKDB_SCRIPT="$(dirname "$(readlink -f "$0")")/bookdb";
+readonly TEST_HOME="${HOME}/.test_bookdb_env"; # A dedicated test home for isolated runs
 
 #-------------------------------------------------------------------------------
-# Minimum Stderr 
+# Minimum Stderr (Copied from bookdb.txt for consistent test output)
 #-------------------------------------------------------------------------------
     
   readonly  red2=$'\x1B[38;5;197m';
@@ -39,242 +43,677 @@ set -e
 
   readonly LINE="$(printf '%.0s-' {1..54})";
 
+################################################################################
+#
+#  stderr
+#
+################################################################################
+# Description: Controls output based on QUIET_MODE and force parameter.
+# Arguments:
+#   1: msg (string) - The message to print.
+#   2: force_output (string, optional) - Pass "force" to bypass QUIET_MODE.
+# Returns: 0.
+# Local Variables: msg, force_output
+stderr(){
+  local msg="$1";
+  local force_output="$2"; # Pass "force" to bypass QUIET_MODE
 
-  stderr(){ [ -z "$QUIET_MODE" ] || [ -n "$2" ] && printf "%b" "${1}${xx}\n" 1>&2; }
+  if [[ -z "$QUIET_MODE" ]] || [[ -n "$force_output" ]]; then
+    printf "%b" "${msg}${xx}\n" 1>&2;
+  fi;
+}
 
-  fatal(){ stderr "$red$1" "force" ;  exit 1; }
-  error(){ stderr "$red$1" "force" ; }
-  warn(){  stderr "$orange$1"; }
-  okay(){  stderr "$green$1"; }
-  info(){  stderr "$blue$1"; }
-  magic(){ stderr "$purple$1"; }   
-  trace(){ stderr "$grey$1"; } 
-  log(){ stderr "$grey$1"; } 
-  line(){ stderr "$LINE";  }
+fatal(){ stderr "$red$1" "force"; exit 1; }
+error(){ stderr "$red$1" "force"; }
+warn(){  stderr "$orange$1"; }
+okay(){  stderr "$green$1"; }
+info(){  stderr "$blue$1"; }
+magic(){ stderr "$purple$1"; }   
+trace(){ stderr "$grey...$1"; } # Note: ellipsis outside color
+log(){ stderr "$grey$1"; } 
+line(){ stderr "$LINE";  }
 
-  # vanity printer
-  __banner() {
-      local text="$1"; local color="$2"; local fill_char="${3:--}"  width;
-      color=${!color:-$white2}
-      # Get terminal width, defaulting to 80 if tput is not available
-      width=$(tput cols 2>/dev/null || echo 80);
-
-      # The visible text block includes the text plus two spaces on each side
-      local text_block_len=$(( ${#text} + 4 ));
-
-      # If the text is wider than the screen, just print it centered and colored
-      if (( text_block_len >= width )); then
-          printf "\n%b%s%b\n" "${color}" "  ${text}  " "" "green"; >&2;
-          return 0;
-      fi
-
-      # Calculate how many filler characters are needed
-      local total_filler_len=$((width - text_block_len));
-      local left_filler_len=$((total_filler_len / 2));
-      local right_filler_len=$((total_filler_len - left_filler_len));
-
-      # Build the left and right filler bars
-      # Using a loop for maximum portability (avoids issues with seq or brace expansion)
-      local left_bar=""
-      for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done
-      
-      local right_bar=""
-      for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done
-
-      # Print the final banner to stderr
-      # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
-      printf "\n%b  %s%s%s  %b\n" "${color}" "${left_bar}"  "${text}"  "${right_bar}" "${xx}" >&2
-  }
-
-  __confirm_action(){
-    local prompt_msg="$1";
-    if [[ "${DEV_MODE}" == "true" ]]; then
-      log "DEV_MODE: Auto-confirming action.";
-      return 0;
-    fi
-    local confirm;
-    printf "${yellow}%s${xx} [y/N]: " "${prompt_msg}" >&2;
-    read confirm;
-    if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
-      return 0;
-    else
-      return 1;
-    fi
-  }
-
-
-#-------------------------------------------------------------------------------
-# Minimum Stderr 
-#-------------------------------------------------------------------------------
+################################################################################
+#
+#  __banner
+#
+################################################################################
+# Description: Prints a stylized banner message to stderr.
+# Arguments:
+#   1: text (string) - The text to display in the banner.
+#   2: color (string) - The name of a color variable (e.g., "green", "red").
+#   3: fill_char (string, optional) - Character to fill the banner (default: "-").
+# Returns: 0.
+# Local Variables: text, color_code, fill_char, width, text_block_len,
+#                  total_filler_len, left_filler_len, right_filler_len,
+#                  left_bar, right_bar, i
+__banner() {
+    local text="$1";
+    local color_name="$2";
+    local fill_char="${3:--}";
+    local color_code="${!color_name:-$white2}"; # Indirect expansion for color variable
+    local width;
     
-  # returns the mode that which found. is expecting is passed, the mode found has to match
-  # error if expecting doesnt match mode. 0 runtime 1 local
-  __get_mode(){
+    # Get terminal width, defaulting to 80 if tput is not available
+    width=$(tput cols 2>/dev/null || echo 80);
 
-    local expecting=${1:-} ret;
-    BOOKDB=$(which bookdb);
+    # The visible text block includes the text plus two spaces on each side
+    local text_block_len=$(( ${#text} + 4 ));
 
-    if [[ "$BOOKDB" =~ "fx-bookdb" ]]; then
-      TEST_MODE=local;
-      warn "Testbook is using local project bookdb ($BOOKDB)";
-      ret=1;
+    # If the text is wider than the screen, just print it centered and colored
+    if (( text_block_len >= width )); then
+        printf "\n%b  %s  %b\n" "${color_code}" "${text}" "${xx}" >&2;
+        return 0;
+    fi;
+
+    # Calculate how many filler characters are needed
+    local total_filler_len=$((width - text_block_len));
+    local left_filler_len=$((total_filler_len / 2));
+    local right_filler_len=$((total_filler_len - left_filler_len));
+
+    # Build the left and right filler bars
+    # Using a loop for maximum portability (avoids issues with seq or brace expansion)
+    local left_bar="";
+    for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done;
+    
+    local right_bar="";
+    for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done;
+
+    # Print the final banner to stderr
+    # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
+    printf "\n%b%s  %s  %s%b\n" "${color_code}" "${left_bar}" "${text}" "${right_bar}" "${xx}" >&2;
+    return 0;
+}
+
+################################################################################
+#
+#  __confirm_action
+#
+################################################################################
+# Description: Prompts the user for confirmation (test version).
+# Arguments:
+#   1: prompt_msg (string) - The message to display to the user.
+# Returns: 0 (always true in test mode for auto-confirm).
+# Local Variables: prompt_msg
+__confirm_action(){
+    local prompt_msg="$1";
+    log "TEST_MODE: Auto-confirming action: '${prompt_msg}'.";
+    return 0;
+}
+
+_test_num=0;
+
+_increment(){
+  local new_sum inc;
+  inc=1;
+  new_sum=$(( _test_num + inc ));
+  _test_num=$new_sum;
+}
+################################################################################
+#
+#  _assert_success
+#
+################################################################################
+# Description: Helper function to assert command success and log.
+# Arguments:
+#   1: test_name (string) - Name of the test being run.
+#   2: exit_code (integer) - The exit code of the command to check.
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, exit_code
+_assert_success(){
+  local test_name="$1";
+  local exit_code="$2" new_sum inc;
+ _increment;
+
+
+  if [[ "${exit_code}" -eq 0 ]]; then
+    okay "[$_test_num] PASSED: ${test_name}";
+  else
+    fatal "[$_test_num] FAILED: ${test_name} (Exit code: ${exit_code})";
+  fi;
+}
+
+################################################################################
+#
+#  _assert_output_contains
+#
+################################################################################
+# Description: Helper function to assert that a string contains expected text,
+#              stripping ANSI escape codes and being resilient to leading/trailing
+#              whitespace on the line containing the text.
+# Arguments:
+#   1: test_name (string) - Name of the test.
+#   2: output_string (string) - The string to search within (raw, with colors).
+#   3: expected_text (string) - The semantic text to expect (without literal
+#                                leading/trailing spaces unless part of content).
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, raw_output_string, expected_text, cleaned_output,
+#                  escaped_expected_text, regex_pattern
+_assert_output_contains(){
+  local test_name="$1";
+  local raw_output_string="$2";
+  local expected_text="$3";
+  
+  local cleaned_output;
+  cleaned_output=$(_strip_ansi_escapes "${raw_output_string}");
+
+  # Escape regex special characters in expected_text
+  local escaped_expected_text;
+  escaped_expected_text=$(_escape_regex_chars "${expected_text}");
+
+  # Construct a regex that matches:
+  # ^\s*       : Start of line followed by zero or more whitespace characters
+  # ${escaped_expected_text} : Our semantic text
+  # .*         : Any characters until the end of the line (if expected_text is a substring)
+  local regex_pattern="^\s*${escaped_expected_text}.*";
+  _increment;
+
+  if echo "${cleaned_output}" | grep -qE "${regex_pattern}"; then
+    okay "[$_test_num] PASSED: ${test_name} (Output contains pattern '${expected_text}')";
+  else
+    fatal "[$_test_num] FAILED: ${test_name} (Output did NOT contain pattern '${expected_text}')\nRaw Output:\n---\n${raw_output_string}\n---\nCleaned Output:\n---\n${cleaned_output}\n---";
+  fi;
+}
+
+################################################################################
+#
+#  _assert_output_equals
+#
+################################################################################
+# Description: Helper function to assert that a string exactly matches expected text,
+#              stripping ANSI escape codes and leading/trailing whitespace from the line.
+# Arguments:
+#   1: test_name (string) - Name of the test.
+#   2: output_string (string) - The string to compare (raw, with colors).
+#   3: expected_text (string) - The exact semantic text to expect for the entire line
+#                                (without literal leading/trailing spaces).
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, raw_output_string, expected_text, cleaned_output,
+#                  trimmed_cleaned_output, escaped_expected_text
+_assert_output_equals(){
+  local test_name="$1";
+  local raw_output_string="$2";
+  local expected_text="$3";
+  
+  local cleaned_output;
+  cleaned_output=$(_strip_ansi_escapes "${raw_output_string}");
+
+  # Trim leading/trailing whitespace from the cleaned output for exact comparison
+  local trimmed_cleaned_output=$(echo "${cleaned_output}" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//');
+
+  # Escape expected_text for safety, although for exact equality, it's less critical.
+  local escaped_expected_text;
+  escaped_expected_text=$(_escape_regex_chars "${expected_text}");
+  _increment;
+
+  if [[ "${trimmed_cleaned_output}" == "${escaped_expected_text}" ]]; then
+    okay "[$_test_num] PASSED: ${test_name} (Output equals '${expected_text}')";
+  else
+    fatal "[$_test_num] FAILED: ${test_name} (Output expected '${expected_text}', got '${trimmed_cleaned_output}')\nRaw Output:\n---\n${raw_output_string}\n---\nCleaned Output:\n---\n${cleaned_output}\n---";
+  fi;
+}
+
+################################################################################
+#
+#  _assert_file_exists
+#
+################################################################################
+# Description: Helper function to assert that a file exists.
+# Arguments:
+#   1: test_name (string) - Name of the test.
+#   2: file_path (string) - Path to the file to check.
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, file_path
+_assert_file_exists(){
+  local test_name="$1";
+  local file_path="$2";
+  _increment;
+  if [[ -f "${file_path}" ]]; then
+    okay "[$_test_num] PASSED: ${test_name} (File exists: ${file_path})";
+  else
+    fatal "[$_test_num] FAILED: ${test_name} (File DOES NOT exist: ${file_path})";
+  fi;
+}
+
+################################################################################
+#
+#  _assert_file_not_exists
+#
+################################################################################
+# Description: Helper function to assert that a file does NOT exist.
+# Arguments:
+#   1: test_name (string) - Name of the test.
+#   2: file_path (string) - Path to the file to check.
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, file_path
+_assert_file_not_exists(){
+  local test_name="$1";
+  local file_path="$2";
+  _increment;
+  if [[ ! -f "${file_path}" ]]; then
+    okay "[$_test_num] PASSED: ${test_name} (File DOES NOT exist: ${file_path})";
+  else
+    fatal "[$_test_num] FAILED: ${test_name} (File SHOULD NOT exist, but does: ${file_path})";
+  fi;
+}
+
+################################################################################
+#
+#  _strip_ansi_escapes
+#
+################################################################################
+# Description: Strips ANSI escape codes from a given string.
+# Arguments:
+#   1: str (string) - The string potentially containing ANSI escapes.
+# Returns: The stripped string to stdout.
+# Local Variables: str
+_strip_ansi_escapes(){
+    local str="$1";
+    # Remove all ANSI escape sequences
+    # ESC [ ( [0-9;]* )? [A-Za-z]
+    # This regex is a common way to match and remove ANSI SGR (Select Graphic Rendition) codes.
+    printf "%s" "${str}" | sed -E 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})*)?[mGK]//g';
+    return 0;
+}
+
+################################################################################
+#
+#  _escape_regex_chars
+#
+################################################################################
+# Description: Escapes regex special characters in a string.
+# Arguments:
+#   1: str (string) - The string to escape.
+# Returns: Escaped string to stdout.
+# Local Variables: str
+_escape_regex_chars(){
+  local str="$1";
+  # Escape common regex metacharacters in POSIX Extended Regular Expressions (ERE).
+  # Curly braces {} are removed from the character class as they can cause issues
+  # when used inside [] in some sed implementations if not specifically for a range.
+  printf "%s" "${str}" | sed -E 's/([.^$*+?()[\]|])/\\\1/g';
+  return 0;
+}
+
+################################################################################
+#
+#  test_setup
+#
+################################################################################
+# Description: Sets up the isolated test environment for bookdb.
+#              This includes creating a virtual HOME directory and a .bashrc file.
+# Arguments:
+#   None.
+# Returns: 0 on success, exits with 1 on failure.
+test_setup(){
+    __banner "Setting up Isolated Test Environment" "purple";
+
+    log "Cleaning previous test environment in: ${TEST_HOME}";
+    rm -rf "${TEST_HOME}" || fatal "Failed to remove old test environment.";
+    
+    log "Creating new test environment in: ${TEST_HOME}";
+    mkdir -p "${TEST_HOME}" || fatal "Failed to create test HOME directory.";
+
+    log "Creating minimal .bashrc in test HOME: ${TEST_HOME}/.bashrc";
+    touch "${TEST_HOME}/.bashrc" || fatal "Failed to create .bashrc in test HOME.";
+    
+    # Ensure HOME is set correctly for subsequent bookdb calls
+    export HOME="${TEST_HOME}";
+
+    okay "Isolated test environment ready.";
+    return 0;
+}
+
+################################################################################
+#
+#  __get_mode
+#
+################################################################################
+# Description: Determines if bookdb is running from local project or global PATH.
+# Arguments:
+#   None.
+# Sets Global: TESTBOOK_BOOKDB_PATH_TYPE (local|runtime)
+# Returns: 0 if using runtime PATH, 1 if local project.
+# Local Variables: BOOKDB_ON_PATH
+__get_mode(){
+    local BOOKDB_ON_PATH;
+    BOOKDB_ON_PATH=$(command -v bookdb 2>/dev/null || echo "");
+
+    if [[ "${BOOKDB_ON_PATH}" == "${HOME}/.local/bin/fx/bookdb" ]]; then
+        info "Testbook is using installed bookdb ($BOOKDB_ON_PATH)";
+        TESTBOOK_BOOKDB_PATH_TYPE="runtime";
+        return 0;
     else
-      TEST_MODE=runtime;
-      okay "Testbook is using bin bookdb ($BOOKDB)";
-      ret=0;
-    fi
-
-  }
-
-
-
+        warn "Testbook is using local project bookdb (${BOOKDB_SCRIPT}) by bypassing PATH lookup.";
+        TESTBOOK_BOOKDB_PATH_TYPE="local";
+        return 1;
+    fi;
+}
 
 #-------------------------------------------------------------------------------
 # Tests
 #-------------------------------------------------------------------------------
+################################################################################
+#
+#  main
+#
+################################################################################
+# Description: Orchestrates the execution of the bookdb test suite.
+# Arguments:
+#   @: args (strings) - Command-line arguments for the test script.
+# Returns: 0 on overall success, exits with 1 on first failure.
+
+################################################################################
+#
+#  main
+#
+################################################################################
+# Description: Orchestrates the execution of the bookdb test suite.
+# Arguments:
+#   @: args (strings) - Command-line arguments for the test script.
+# Returns: 0 on overall success, exits with 1 on first failure.
 main(){    
+  __banner "Starting Bookdb Test Suite" "purple";
 
-__banner "Which Bookdb Mode?" "purple";
+  # Step 0: Set up the isolated test environment
+  test_setup;
 
-__get_mode;
+  __get_mode;
 
-__banner "Phase 0: Initial Setup & State Verification" "green";
-# Ensure we have a clean, predictable installation with test data
+  __banner "Phase 0: Initial Setup & State Verification" "green";
+  log "Operating in test HOME: ${HOME}";
 
-bookdb dev_setup 1 -y; #one blocks reset/deletes
+  # Clean install and setup test data.
+  # TEST_MODE=0 ensures bookdb uses BOOK_TEST_DB.
+  # SOFT_RESET=0 (for bookdb's internal do_reset) ensures it won't delete binaries on reset.
+  # --printer stdoutt redirects all verbose messages to stdout for capture.
+  TEST_MODE=0 SOFT_RESET=0 "${BOOKDB_SCRIPT}" dev_setup -y --printer stdoutt;
+  _assert_success "Initial dev_setup" $?;
 
-
-
-# Verify initial state with read-only commands
-bookdb status;
-bookdb cursor;
-
-
-__banner "Phase 1: Namespace Creation & Basic CRUD" "green"; 
-# Test `new project`
-bookdb new project --ns webapp;
-
-# Verify project creation with `ls project`
-bookdb ls project | grep "webapp";
-
-# Test `new keyval` (this will be created in the current cursor context: @GLOBAL.VAR.MAIN)
-bookdb new keyval --ns settings;
-
-# To create a keystore in our new project, we first set the context using a `setv` command
-# Test `setv` with a context chain to create a key and set the cursor
-bookdb setv TIER="development" @webapp.VAR.MAIN;
-
-# Verify the cursor has changed
-bookdb cursor | grep "webapp";
-
-# Now create a new keystore in the 'webapp' project
-bookdb new keyval --ns secrets;
-
-# Test `ls vars` to see the new keystore
-bookdb ls vars | grep "secrets"
-
-# Set some variables in the new keystore
-bookdb setv API_KEY="key-super-secret-12345" @webapp.VAR.secrets
-bookdb setv TIMEOUT=30 @webapp.VAR.secrets
-
-# Test `getv` to retrieve a value
-API_KEY_VAL=$(bookdb getv API_KEY @webapp.VAR.secrets)
-echo "Retrieved API Key: ${API_KEY_VAL}"
-
-# Test updating a value
-bookdb setv TIMEOUT=60 @webapp.VAR.secrets
-TIMEOUT_VAL=$(bookdb getv TIMEOUT @webapp.VAR.secrets)
-if [[ "${TIMEOUT_VAL}" != "60" ]]; then exit 1; fi
+  # Verify initial state with read-only commands
+  local status_output;
+  status_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" status --printer stdoutt);
+  _assert_success "bookdb status command" $?;
 
 
-__banner "Phase 2: Numerical Operations and Search" "green";
-# Test `incv` and `decv`
-bookdb setv COUNTER=100 @webapp.VAR.secrets
-bookdb incv COUNTER @webapp.VAR.secrets
-bookdb incv COUNTER 5 @webapp.VAR.secrets # Increment by 5
-bookdb decv COUNTER 2 @webapp.VAR.secrets # Decrement by 2
-COUNTER_VAL=$(bookdb getv COUNTER @webapp.VAR.secrets)
-# 100 + 1 + 5 - 2 = 104
-if [[ "${COUNTER_VAL}" != "104" ]]; then exit 1; fi
 
-# Test `find`
-bookdb find API_KEY | grep "@webapp.VAR.secrets -> API_KEY"
-bookdb find '%_KEY' | grep "API_KEY"
+  _assert_output_contains "Status output contains test DB file name" "${status_output}" "bookdb-test.sqlite";
 
+  magic "HELLO YES";
+  stderr "OMG ${status_output}";
 
-__banner "Phase 3: All `ls` Variants" "green";
-# Test all variants of the `ls` command
-bookdb ls project
-bookdb ls vars @webapp.VAR.MAIN
-bookdb ls keys @webapp.VAR.secrets
-bookdb ls # The new `ls all` command
+  stderr "YAY $status_output" 
+
+  _assert_output_contains "Status output contains GLOBAL project label" "${status_output}" "Projects:";
+  _assert_output_contains "Status output contains GLOBAL project entry" "${status_output}" "- GLOBAL";
+  _assert_output_contains "Status output contains myapp project entry" "${status_output}" "- myapp";
+
+  local cursor_output;
+  cursor_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" cursor --printer stdoutt);
+  _assert_success "bookdb cursor command" $?;
+  _assert_output_contains "Cursor starts as GLOBAL.MAIN" "${cursor_output}" "Active Cursor: @GLOBAL.VAR.MAIN";
 
 
-__banner "Phase 4: File I/O (pub, unpub, export, import, migrate)" "green";
-# Create a dummy .env file to test with
-touch test.env
+  __banner "Phase 1: Namespace Creation & Basic CRUD" "green"; 
+  # Test `new project`
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" new project --ns webapp --printer stdoutt;
+  _assert_success "Create 'webapp' project" $?;
 
-# Test `pub` to publish a key to the file
-bookdb pub @webapp.VAR.secrets.API_KEY ./test.env
-# Verify the file now contains the key
-grep "API_KEY=\"key-super-secret-12345\"" ./test.env
+  # Verify project creation with `ls project`
+  local ls_projects_output;
+  ls_projects_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" ls project --printer stdoutt);
+  _assert_success "List projects" $?;
+  _assert_output_contains "ls project contains webapp" "${ls_projects_output}" "webapp";
 
-# Test `unpub` to remove the key from the file
-bookdb unpub @webapp.VAR.secrets.API_KEY ./test.env
-# Verify the key is gone (the `!` inverts the exit code, so it succeeds if grep finds nothing)
-! grep "API_KEY" ./test.env
+  # Test `new keyval` (this will be created in the current cursor context: @GLOBAL.VAR.MAIN)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" new keyval --ns settings --printer stdoutt;
+  _assert_success "Create 'settings' keyval in GLOBAL" $?;
 
-# Test `export keystore`
-bookdb export keystore @webapp.VAR.secrets
-# Verify the export file was created and has content
-ls webapp_secrets.env
-grep "API_KEY" webapp_secrets.env
+  # To create a keystore in our new project, we first set the context using a `setv` command
+  # Test `setv` with a context chain to create a key and set the cursor
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" setv TIER="development" @webapp.VAR.MAIN --printer stdoutt;
+  _assert_success "Set TIER in webapp.MAIN and set cursor" $?;
 
-# Test `import`
-printf "NEW_FEATURE_FLAG=true\n" > import_me.env
-bookdb import ./import_me.env @webapp.VAR.settings -y
-# Verify the imported key exists
-bookdb getv NEW_FEATURE_FLAG @webapp.VAR.settings | grep "true"
+  # Verify the cursor has changed
+  cursor_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" cursor --printer stdoutt);
+  _assert_success "bookdb cursor after setting context" $?;
+  _assert_output_contains "Cursor changed to webapp.MAIN" "${cursor_output}" "Active Cursor: @webapp.VAR.MAIN";
 
-# Test `migrate`
-bookdb migrate
-# Verify the migration directory was created
-ls -d bookdb_fullbak_*
+  # Now create a new keystore in the 'webapp' project (using the new cursor)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" new keyval --ns secrets --printer stdoutt;
+  _assert_success "Create 'secrets' keyval in webapp" $?;
 
-# Test `backup`
-bookdb backup
-# Verify the backup tarball was created
-ls bookdb_backup_*.tar.gz;
+  # Test `ls vars` to see the new keystore in the current context (webapp)
+  local ls_vars_output;
+  ls_vars_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" ls vars --printer stdoutt);
+  _assert_success "List vars in webapp" $?;
+  _assert_output_contains "ls vars contains secrets" "${ls_vars_output}" "secrets";
 
+  # Set some variables in the new keystore
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" setv API_KEY="key-super-secret-12345" @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Set API_KEY in webapp.secrets" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" setv TIMEOUT=30 @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Set TIMEOUT in webapp.secrets" $?;
 
-__banner "Phase 5: Deletion and Cleanup" "green";
-# Test `delv`
-bookdb delv COUNTER @webapp.VAR.secrets -y;
+  # Test `getv` to retrieve a value (getv output is pure data, no --printer needed)
+  local API_KEY_VAL;
+  API_KEY_VAL=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv API_KEY @webapp.VAR.secrets);
+  _assert_success "Get API_KEY" $?;
+  _assert_output_equals "Retrieved API Key matches" "${API_KEY_VAL}" "key-super-secret-12345";
 
-# Test `del keyval`
-bookdb del keyval --ns secrets @webapp.VAR.MAIN -y;
-
-# Test `del project`
-bookdb del project --ns webapp -y;
-# Verify project is gone
-! bookdb ls project | grep "webapp";
-
-# Clean up the files and directories created during the test
-echo "Cleaning up temporary test files...";
-rm -f test.env webapp_secrets.env import_me.env bookdb_backup_*.tar.gz;
-rm -rf bookdb_fullbak_*;
-
-
-__banner "Phase 6: Final Reset" "green";
-# Test the full reset and uninstall command
-bookdb reset -y
+  # Test updating a value
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" setv TIMEOUT=60 @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Update TIMEOUT" $?;
+  local TIMEOUT_VAL;
+  TIMEOUT_VAL=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv TIMEOUT @webapp.VAR.secrets);
+  _assert_success "Get updated TIMEOUT" $?;
+  _assert_output_equals "Updated TIMEOUT matches" "${TIMEOUT_VAL}" "60";
 
 
-# Teardown
-# Stop printing commands
-set +x
+  __banner "Phase 2: Numerical Operations and Search" "green";
+  # Test `incv` and `decv`
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" setv COUNTER=100 @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Set initial COUNTER" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" incv COUNTER @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Increment COUNTER by 1" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" incv COUNTER 5 @webapp.VAR.secrets --printer stdoutt; # Increment by 5
+  _assert_success "Increment COUNTER by 5" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" decv COUNTER 2 @webapp.VAR.secrets --printer stdoutt; # Decrement by 2
+  _assert_success "Decrement COUNTER by 2" $?;
+  local COUNTER_VAL;
+  COUNTER_VAL=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv COUNTER @webapp.VAR.secrets);
+  # 100 + 1 + 5 - 2 = 104
+  _assert_output_equals "Final COUNTER value is 104" "${COUNTER_VAL}" "104";
 
-__banner "\n\n✅ All commands tested successfully! The system has been reset." "green";
+  # Test `find` (find outputs messages, so requires --printer)
+  local find_output;
+  find_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" find API_KEY --printer stdoutt);
+  _assert_success "Find API_KEY" $?;
+  _assert_output_contains "Find output contains API_KEY" "${find_output}" "@webapp.VAR.secrets -> API_KEY";
+
+  find_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" find '%_KEY' --printer stdoutt);
+  _assert_success "Find keys ending in _KEY" $?;
+  _assert_output_contains "Find output contains API_KEY" "${find_output}" "API_KEY";
+
+
+  __banner "Phase 3: All `ls` Variants" "green";
+  # Test all variants of the `ls` command (all these produce messages, so require --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" ls project --printer stdoutt;
+  _assert_success "ls project" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" ls vars @webapp.VAR.MAIN --printer stdoutt;
+  _assert_success "ls vars @webapp.VAR.MAIN" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" ls keys @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "ls keys @webapp.VAR.secrets" $?;
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" ls all --printer stdoutt;
+  _assert_success "ls all" $?;
+
+
+  __banner "Phase 4: File I/O (pub, unpub, export, import, migrate)" "green";
+  # Create a dummy .env file to test with in the local directory (relative to PWD)
+  local test_env_file="test_local.env";
+  touch "${test_env_file}";
+  _assert_success "Create dummy test_local.env file" $?;
+
+  # Test `pub` to publish a key to the file (pub outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" pub @webapp.VAR.secrets.API_KEY "${test_env_file}" --printer stdoutt;
+  _assert_success "Publish API_KEY to test_local.env" $?;
+  # Verify the file now contains the key
+  grep -q "API_KEY=\"key-super-secret-12345\"" "${test_env_file}";
+  _assert_success "test_local.env contains published API_KEY" $?;
+
+  # Test `unpub` to remove the key from the file (unpub outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" unpub @webapp.VAR.secrets.API_KEY "${test_env_file}" --printer stdoutt;
+  _assert_success "Unpublish API_KEY from test_local.env" $?;
+  # Verify the key is gone (the `!` inverts the exit code, so it succeeds if grep finds nothing)
+  ! grep -q "API_KEY" "${test_env_file}";
+  _assert_success "test_local.env no longer contains API_KEY" $?;
+
+  # Test `export keystore` (export outputs messages, requires --printer)
+  local export_file="webapp_secrets_exported.env";
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" export keystore @webapp.VAR.secrets --printer stdoutt;
+  _assert_success "Export webapp.secrets keystore" $?;
+  # Verify the export file was created and has content
+  _assert_file_exists "Export file created" "${export_file}";
+  grep -q "API_KEY=\"key-super-secret-12345\"" "${export_file}";
+  _assert_success "Exported file has API_KEY" $?;
+
+  # Test `import` - public keys (import outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" import "${HOME}/bookdb_test_public.env" -y --printer stdoutt;
+  _assert_success "Import public keys from bookdb_test_public.env" $?;
+  local service_a_url;
+  service_a_url=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv SERVICE_A_URL @myapp.VAR.apis);
+  _assert_output_equals "Imported SERVICE_A_URL correct" "${service_a_url}" "https://service-a.com/api";
+  # Verify private key was NOT imported
+  local private_key_val;
+  private_key_val=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv _PRIVATE_KEY @myapp.VAR.apis || true); # Suppress error if not found
+  if [[ -n "${private_key_val}" ]]; then fatal "FAILED: Private key was imported when it should not have been (public scope)."; fi;
+  okay "PASSED: Private key NOT imported (public scope)";
+
+  # Test `import` - private keys (import outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" import "${HOME}/bookdb_test_private.env" -y --printer stdoutt;
+  _assert_success "Import private keys from bookdb_test_private.env" $?;
+  local secret_token;
+  secret_token=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv _SECRET_TOKEN @myapp.VAR.apis);
+  _assert_output_equals "Imported _SECRET_TOKEN correct" "${secret_token}" "token-12345";
+  # Verify public key was NOT imported
+  local public_key_val;
+  public_key_val=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv PUBLIC_KEY @myapp.VAR.apis || true); # Suppress error if not found
+  if [[ -n "${public_key_val}" ]]; then fatal "FAILED: Public key was imported when it should not have been (private scope)."; fi;
+  okay "PASSED: Public key NOT imported (private scope)";
+
+  # Test `import` - all keys (import outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" import "${HOME}/bookdb_test_all.env" -y --printer stdoutt;
+  _assert_success "Import all keys from bookdb_test_all.env" $?;
+  local public_key_1;
+  public_key_1=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv PUBLIC_KEY_1 @myapp.VAR.apis);
+  _assert_output_equals "Imported PUBLIC_KEY_1 correct" "${public_key_1}" "public1";
+  local private_key_1;
+  private_key_1=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv _PRIVATE_KEY_1 @myapp.VAR.apis);
+  _assert_output_equals "Imported _PRIVATE_KEY_1 correct" "${private_key_1}" "private1";
+
+
+  # Test `import` - addonly mode (import outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" import "${HOME}/bookdb_test_addonly.env" -y --printer stdoutt;
+  _assert_success "Import with addonly mode" $?;
+  # GOOGLE_API_KEY should NOT have changed (was 'key-for-google', should not be 'this_value_should_be_ignored')
+  local google_api_key_check;
+  google_api_key_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv GOOGLE_API_KEY @myapp.VAR.apis);
+  _assert_output_equals "Addonly: existing key unchanged" "${google_api_key_check}" "key-for-google";
+  # NEW_SERVICE_KEY should have been added
+  local new_service_key_check;
+  new_service_key_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv NEW_SERVICE_KEY @myapp.VAR.apis);
+  _assert_output_equals "Addonly: new key added" "${new_service_key_check}" "this_value_should_be_added";
+
+
+  # Test `migrate` (migrate outputs messages, requires --printer)
+  local migrate_output;
+  migrate_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" migrate --printer stdoutt);
+  _assert_success "Run migrate command" $?;
+  # Verify the migration directory was created (output contains the directory name)
+  local migrate_dir_name=$(echo "${migrate_output}" | grep -o 'bookdb_fullbak_[0-9_]\+');
+  _assert_output_contains "Migrate output indicates directory" "${migrate_output}" "Migration complete.";
+  _assert_output_contains "Migration directory name captured" "${migrate_dir_name}" "bookdb_fullbak_";
+  _assert_file_exists "Migration directory exists" "${TEST_HOME}/${migrate_dir_name}"; # Check in TEST_HOME
+  _assert_file_exists "Migrated GLOBAL_MAIN.env exists" "${TEST_HOME}/${migrate_dir_name}/GLOBAL_MAIN.env";
+  _assert_file_exists "Migrated myapp_apis.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_apis.env";
+  _assert_file_exists "Migrated myapp_MAIN.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_MAIN.env";
+  _assert_file_exists "Migrated myapp_secrets.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_secrets.env";
+
+
+  # Test `backup` (backup outputs messages, requires --printer)
+  local backup_output;
+  backup_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" backup --printer stdoutt);
+  _assert_success "Run backup command" $?;
+  # Verify the backup tarball was created (output contains the filename)
+  local backup_tar_name=$(echo "${backup_output}" | grep -o 'bookdb_backup_[0-9_]\+\.tar\.gz');
+  _assert_file_exists "Backup tarball exists" "${TEST_HOME}/${backup_tar_name}";
+
+
+  __banner "Phase 5: Deletion and Cleanup" "green";
+  # Test `delv` (delv outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" delv COUNTER @webapp.VAR.secrets -y --printer stdoutt;
+  _assert_success "Delete COUNTER variable" $?;
+  local counter_exists_check;
+  counter_exists_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv COUNTER @webapp.VAR.secrets || true); # Suppress error for not found
+  if [[ -n "${counter_exists_check}" ]]; then fatal "FAILED: COUNTER variable still exists after deletion."; fi;
+  okay "PASSED: COUNTER variable successfully deleted.";
+
+
+  # Test `del keyval` (del keyval outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" del keyval --ns secrets @webapp.VAR.MAIN -y --printer stdoutt;
+  _assert_success "Delete 'secrets' keyval" $?;
+  # Verify keyval is gone
+  local ls_vars_check;
+  ls_vars_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" ls vars @webapp.VAR.MAIN || true); # ls vars also outputs pure data, but this check is for absence
+  ! echo "${ls_vars_check}" | grep -q "secrets";
+  _assert_success "secrets keyval no longer listed" $?;
+
+
+  # Test `del project` (del project outputs messages, requires --printer)
+  TEST_MODE=0 "${BOOKDB_SCRIPT}" del project --ns webapp -y --printer stdoutt;
+  _assert_success "Delete 'webapp' project" $?;
+  # Verify project is gone
+  local ls_projects_check;
+  ls_projects_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" ls project || true); # ls project also outputs pure data, but this check is for absence
+  ! echo "${ls_projects_check}" | grep -q "webapp";
+  _assert_success "webapp project no longer listed" $?;
+
+
+  __banner "Phase 6: Final Reset (Cleanup of Test Environment)" "green";
+  # Test the full reset and uninstall command, using SOFT_RESET=0
+  # This ensures it cleans up the DB but not the script itself (as requested).
+  TEST_MODE=0 SOFT_RESET=0 "${BOOKDB_SCRIPT}" reset -y --printer stdoutt;
+  _assert_success "Full bookdb reset (soft)" $?;
+
+  # Verify that the test database and cursor file are gone from TEST_HOME
+  _assert_file_not_exists "Test database removed" "${TEST_HOME}/.local/share/fx/bookdb/bookdb-test.sqlite";
+  _assert_file_not_exists "Cursor file removed" "${TEST_HOME}/.local/state/fx/bookdb/cursor";
+
+  # Final cleanup of all test-created files and the TEST_HOME directory itself
+  log "Performing final cleanup of test-created files and '${TEST_HOME}'...";
+
+  # Explicitly remove .env files generated by dev_setup in TEST_HOME
+  rm -f "${TEST_HOME}/bookdb_test_public.env" \
+        "${TEST_HOME}/bookdb_test_private.env" \
+        "${TEST_HOME}/bookdb_test_all.env" \
+        "${TEST_HOME}/bookdb_test_addonly.env";
+
+  # Remove local files generated by pub/export commands
+  rm -f "${test_env_file}" "${export_file}";
+
+  # Remove all backup tarballs and migration directories in TEST_HOME
+  rm -f "${TEST_HOME}/bookdb_backup_*.tar.gz";
+  find "${TEST_HOME}" -maxdepth 1 -type d -name 'bookdb_fullbak_*' -exec rm -rf {} +;
+
+  # Finally, remove the entire test home directory
+  rm -rf "${TEST_HOME}";
+  _assert_success "Clean up entire test HOME directory" $?;
+
+  # Restore original HOME
+  unset HOME;
+
+
+  __banner "\n\n✅ All bookdb commands tested successfully! Test environment fully reset." "green";
 }
-
 main "${@}";
+
