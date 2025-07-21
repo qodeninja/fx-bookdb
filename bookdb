@@ -20,6 +20,7 @@
   
   readonly APP_BOOKDB="${BASH_SOURCE[0]}";
 
+
 #-------------------------------------------------------------------------------
 #  Bootstrap
 #-------------------------------------------------------------------------------
@@ -126,7 +127,9 @@ line(){ stderr "$LINE"; }
 
   TEST_MODE=${TEST_MODE:-1};
 
-
+  magic "Project ? ${BOOK_PROJECT_HOME}";
+  magic "Self ? ${BOOK_PATH} using 0 ";
+  magic "Bash ? ${APP_BOOKDB} using BASH0 ";
 #-------------------------------------------------------------------------------
 #  XDG+
 #-------------------------------------------------------------------------------
@@ -153,6 +156,7 @@ line(){ stderr "$LINE"; }
 
   readonly BOOK_SHARE="${BOOK_DATA}"; # Renaming BOOK_DATA to BOOK_SHARE for clarity and XDG compliance
 
+  readonly BOOK_LOCK="${BOOK_STATE}/db.lock";
 
 #-------------------------------------------------------------------------------
 #  Global Variables (Initialized by Bootstrap/Context)
@@ -421,7 +425,7 @@ bootstrap(){
   else
     noimp "ignore missing rc file, BOOK_PROJECT_HOME will be undefined or default";
     # This might be needed if BOOK_PROJECT_HOME is expected to be set by RC
-    # readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
+    readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
   fi
   if is_dev; then
     magic "Bookdb started from $BOOK_PATH";
@@ -582,32 +586,38 @@ __validate_name(){
 __db_query(){
   local ret=1;
   local query="$1";
-  shift; # Remove the query from arguments to pass remaining to sqlite3
+  shift;
   
   if ! command -v sqlite3 >/dev/null 2>&1; then
-    error "sqlite3 command not found. It is a required dependency.";
+    error "sqlite3 command not found.";
     return 1;
   fi;
   if [[ ! -f "${THIS_DB}" ]]; then
-    error "Database file does not exist: ${THIS_DB}. Run 'bookdb install'.";
+    error "Database file does not exist: ${THIS_DB}.";
     return 1;
   fi;
-  
-  # Ensure strict adherence to BashFX: stdout for data, stderr for messages
-  local output;
-  output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2>&1);
-  ret=$?;
 
-  if [[ ${ret} -ne 0 ]]; then
-    error "Database query failed for: ${query}";
-    stderr "SQLite Error: ${output}"; # Print SQLite's error output to stderr
-  else
-    # THE FIX: Use parameter expansion to remove only a single trailing newline.
-    # This preserves multi-line output for commands like `ls` and `tdump`.
-    printf "%s" "${output%$'\n'}"; # Print successful query output to stdout
-  fi;
-  return ${ret};
+  # Wrap the entire sqlite3 call in a subshell managed by flock.
+  (
+    flock -x 200 # Acquire an exclusive lock on file descriptor 200
+
+    local output;
+    output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2>&1);
+    ret=$?;
+
+    if [[ ${ret} -ne 0 ]]; then
+      printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;
+      printf "%b\n" "${red}SQLite Error: ${output}${xx}" >&2;
+    else
+      printf "%s" "${output%$'\n'}";
+    fi;
+    
+    exit ${ret};
+  ) 200>"${BOOK_LOCK}";
+  
+  return $?;
 }
+
 ################################################################################
 #
 #  __persist_cursor
@@ -1964,9 +1974,12 @@ do_import(){
 __setup_sql(){
   log "Creating/verifying database schema...";
 
+
+  [ -z "${THIS_DB}" ] && select_db;
+
   # Create the database schema
   touch "${THIS_DB}" || fatal "Failed to create database file: ${THIS_DB}";
-
+  
   local sql_create_pns="CREATE TABLE IF NOT EXISTS project_ns (pns_id INTEGER PRIMARY KEY, pns_name TEXT UNIQUE NOT NULL);";
   local sql_create_kvns="CREATE TABLE IF NOT EXISTS keyval_ns (kvns_id INTEGER PRIMARY KEY, kvns_name TEXT NOT NULL, pns_id_fk INTEGER, FOREIGN KEY(pns_id_fk) REFERENCES project_ns(pns_id) ON DELETE CASCADE, UNIQUE(kvns_name, pns_id_fk));";
   local sql_create_vars="CREATE TABLE IF NOT EXISTS vars (var_id INTEGER PRIMARY KEY, var_key TEXT NOT NULL, var_value TEXT, var_updated INTEGER, kvns_id_fk INTEGER, FOREIGN KEY(kvns_id_fk) REFERENCES keyval_ns(kvns_id) ON DELETE CASCADE);";
@@ -1974,6 +1987,10 @@ __setup_sql(){
   __db_query "${sql_create_pns}"  || fatal "Failed to create table: project_ns";
   __db_query "${sql_create_kvns}" || fatal "Failed to create table: keyval_ns";
   __db_query "${sql_create_vars}" || fatal "Failed to create table: vars";
+
+  # Enable WAL mode for better concurrency
+  #__db_query "PRAGMA journal_mode=WAL;";
+  __db_query "PRAGMA journal_mode=WAL;" >/dev/null || fatal "Failed to set WAL journal mode.";
   
   # Insert or ignore default 'GLOBAL' project namespace
   __db_query "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('GLOBAL');" || fatal "Failed to create default 'GLOBAL' project.";
@@ -2047,7 +2064,7 @@ __setup_confirm(){
 _get_rc_template(){
     cat <<EOF
 # bookdb runtime configuration
-export BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$APP_BOOKDB")}"; # Set to actual script location or default
+export BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME}"; # Set to actual script location or default
 
 # Add bookdb bin to PATH if it's not already there.
 if [[ -d "${BOOK_BIN}" ]]; then
@@ -2131,7 +2148,10 @@ do_install(){
 
   # Copy and permission the script (cp before ln -s)
   info "Installing script to '${_cp_path}'...";
-  cp "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
+
+  [ -f "${_cp_path}" ] && rm -f "${_cp_path}";
+
+  cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
   chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
 
   # Create symlink
@@ -2331,6 +2351,9 @@ __db_query_sample(){
 # Local Variables: install_skip
 do_dev_setup(){
   local install_skip="$1";
+
+  # Ensure THIS_DB is set before any DB operations
+  select_db;
 
   # Set SOFT_RESET to 0 (true) for dev_setup to prevent full reset of binaries
   # But allow full DB reset if not skipped.
@@ -2583,33 +2606,31 @@ dispatch(){
 #   @: args (strings) - All command-line arguments.
 # Returns: Exit status of the executed command.
 main(){
+  # STEP 1: PARSE FIRST, ALWAYS.
+  # This ensures opt_* variables are available for all subsequent logic.
+  options "$@";
 
-  bootstrap; # Check if rc file is available
-  select_db; # Automatically switch to test database if TEST_MODE detected.
-
-  # Handle simple, self-contained commands that must run regardless of installation state.
-  case "$1" in
-    (help) usage; exit 1; ;;
-    (noimp) noimp; exit 0; ;;
-    (reset)
-      if [[ "$2" == "-y" || "$2" == "--yes" ]]; then opt_yes=1; fi;
-      do_reset; exit $?;
-      ;;
-    (rc)
-      dev_rc; exit $?;
-      ;;
-    (install)
-      do_install; exit $?;
-      ;;
-    # THE FIX: REMOVED the (import) and (export) cases from this block.
-    # They will now be handled by the main logic path below.
-    (dev_setup)
-      if [[ "$2" == "-y" || "$2" == "--yes" ]]; then opt_yes=1; fi;
-      do_dev_setup "${ARGS[1]}"; exit $?; # Note: this was also slightly buggy, fixed
-      ;;
+  # Set global quiet mode if the flag was passed.
+  if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi;
+  
+  # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
+  # These commands must run before any state (like DB existence) is assumed.
+  local cmd_pre_state="${ARGS[0]}";
+  case "$cmd_pre_state" in
+    (help|usage) usage; exit 1; ;;
+    (install) do_install; exit $?; ;;
+    (reset) do_reset; exit $?; ;;
+    (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
   esac;
 
-  # If not installed, prompt the user.
+  # If we are here, the command was not a pre-state shortcut.
+  # Now, we can safely assume the application should be installed.
+
+  # Bootstrap and select the database (pre-context resolution)
+  bootstrap;
+  select_db;
+
+  # Check if the database exists. If not, prompt user to install.
   if [[ ! -f "${THIS_DB}" ]]; then
     if is_dev; then
       log "DEV_MODE: Auto-installing on first run.";
@@ -2628,20 +2649,17 @@ main(){
     fi;
   fi;
 
-  # Regular execution flow: parse options, resolve context, then dispatch.
-  options "$@";
-  if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi;
-
-  case "${ARGS[0]}" in
-      (tables|tdump|sanity) dispatch; exit $?; ;;
-  esac;
-
+  # STEP 3: RESOLVE CONTEXT.
+  # This is now called *after* options are parsed and *before* dispatch.
+  # It will correctly use `opt_context_chain` if provided on the command line.
   __resolve_context || exit 1;
+
+  # STEP 4: DISPATCH.
+  # Execute the command with the now-correct context.
   dispatch;
   local ret=$?;
   return "${ret}";
 }
-
 #
 # --- Execution Entry Point ---
 #
