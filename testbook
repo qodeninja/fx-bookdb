@@ -60,7 +60,7 @@ stderr(){
 
   if [[ -z "$QUIET_MODE" ]] || [[ -n "$force_output" ]]; then
     printf "%b" "${msg}${xx}\n" 1>&2;
-  fi;
+  fi
 }
 
 fatal(){ stderr "$red$1" "force"; exit 1; }
@@ -68,7 +68,7 @@ error(){ stderr "$red$1" "force"; }
 warn(){  stderr "$orange$1"; }
 okay(){  stderr "$green$1"; }
 info(){  stderr "$blue$1"; }
-magic(){ stderr "$purple$1"; }   
+magic(){ stderr "$purple$1" "force"; }   
 trace(){ stderr "$grey...$1"; } # Note: ellipsis outside color
 log(){ stderr "$grey$1"; } 
 line(){ stderr "$LINE";  }
@@ -88,58 +88,45 @@ line(){ stderr "$LINE";  }
 #                  total_filler_len, left_filler_len, right_filler_len,
 #                  left_bar, right_bar, i
 __banner() {
-    local text="$1";
-    local color_name="$2";
-    local fill_char="${3:--}";
-    local color_code="${!color_name:-$white2}"; # Indirect expansion for color variable
-    local width;
-    
-    # Get terminal width, defaulting to 80 if tput is not available
-    width=$(tput cols 2>/dev/null || echo 80);
+  local text="$1";
+  local color_name="$2";
+  local fill_char="${3:--}";
+  local color_code="${!color_name:-$white2}"; # Indirect expansion for color variable
+  local width;
+  
+  # Get terminal width, defaulting to 80 if tput is not available
+  width=$(tput cols 2>/dev/null || echo 80);
 
-    # The visible text block includes the text plus two spaces on each side
-    local text_block_len=$(( ${#text} + 4 ));
+  # The visible text block includes the text plus two spaces on each side
+  local text_block_len=$(( ${#text} + 4 ));
 
-    # If the text is wider than the screen, just print it centered and colored
-    if (( text_block_len >= width )); then
-        printf "\n%b  %s  %b\n" "${color_code}" "${text}" "${xx}" >&2;
-        return 0;
-    fi;
+  # If the text is wider than the screen, just print it centered and colored
+  if (( text_block_len >= width )); then
+      printf "\n%b  %s  %b\n" "${color_code}" "${text}" "${xx}" >&2;
+      return 0;
+  fi
 
-    # Calculate how many filler characters are needed
-    local total_filler_len=$((width - text_block_len));
-    local left_filler_len=$((total_filler_len / 2));
-    local right_filler_len=$((total_filler_len - left_filler_len));
+  # Calculate how many filler characters are needed
+  local total_filler_len=$((width - text_block_len));
+  local left_filler_len=$((total_filler_len / 2));
+  local right_filler_len=$((total_filler_len - left_filler_len));
 
-    # Build the left and right filler bars
-    # Using a loop for maximum portability (avoids issues with seq or brace expansion)
-    local left_bar="";
-    for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done;
-    
-    local right_bar="";
-    for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done;
+  # Build the left and right filler bars
+  # Using a loop for maximum portability (avoids issues with seq or brace expansion)
+  local left_bar="";
+  for ((i=0; i<left_filler_len; i++)); do left_bar="${left_bar}${fill_char}"; done;
+  
+  local right_bar="";
+  for ((i=0; i<right_filler_len; i++)); do right_bar="${right_bar}${fill_char}"; done;
 
-    # Print the final banner to stderr
-    # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
-    printf "\n%b%s  %s  %s%b\n" "${color_code}" "${left_bar}" "${text}" "${right_bar}" "${xx}" >&2;
-    return 0;
+  # Print the final banner to stderr
+  # The structure is [left-bar][space][space][colored-text][space][space][right-bar]
+  printf "\n%b%s  %s  %s%b\n" "${color_code}" "${left_bar}" "${text}" "${right_bar}" "${xx}" >&2;
+  return 0;
 }
 
-################################################################################
-#
-#  __confirm_action
-#
-################################################################################
-# Description: Prompts the user for confirmation (test version).
-# Arguments:
-#   1: prompt_msg (string) - The message to display to the user.
-# Returns: 0 (always true in test mode for auto-confirm).
-# Local Variables: prompt_msg
-__confirm_action(){
-    local prompt_msg="$1";
-    log "TEST_MODE: Auto-confirming action: '${prompt_msg}'.";
-    return 0;
-}
+
+
 
 _test_num=0;
 
@@ -163,13 +150,36 @@ _increment(){
 _assert_success(){
   local test_name="$1";
   local exit_code="$2" new_sum inc;
- _increment;
+  _increment;
 
 
   if [[ "${exit_code}" -eq 0 ]]; then
     okay "[$_test_num] PASSED: ${test_name}";
   else
     fatal "[$_test_num] FAILED: ${test_name} (Exit code: ${exit_code})";
+  fi
+}
+
+################################################################################
+#
+#  _assert_dir_exists
+#
+################################################################################
+# Description: Helper function to assert that a directory exists.
+# Arguments:
+#   1: test_name (string) - Name of the test.
+#   2: dir_path (string) - Path to the directory to check.
+# Returns: Exits with 1 if assertion fails.
+# Local Variables: test_name, dir_path
+_assert_dir_exists(){
+  local test_name="$1";
+  local dir_path="$2";
+  _increment;
+
+  if [[ -d "${dir_path}" ]]; then
+    okay "[$_test_num] PPASSED: ${test_name} (Directory exists: ${dir_path})";
+  else
+    fatal "[$_test_num] PFAILED: ${test_name} (Directory DOES NOT exist: ${dir_path})";
   fi;
 }
 
@@ -195,20 +205,15 @@ _assert_output_contains(){
   local expected_text="$3";
   
   local cleaned_output;
-  cleaned_output=$(_strip_ansi_escapes "${raw_output_string}");
+  cleaned_output=$(printf "%s" "${raw_output_string}" | _strip_ansi_escapes);
 
-  # Escape regex special characters in expected_text
+  # Escape regex special characters in expected_text to be safe for grep -E
   local escaped_expected_text;
-  escaped_expected_text=$(_escape_regex_chars "${expected_text}");
-
-  # Construct a regex that matches:
-  # ^\s*       : Start of line followed by zero or more whitespace characters
-  # ${escaped_expected_text} : Our semantic text
-  # .*         : Any characters until the end of the line (if expected_text is a substring)
-  local regex_pattern="^\s*${escaped_expected_text}.*";
+  # THE FIX: Pipe the string to the helper's stdin
+  escaped_expected_text=$(printf "%s" "${expected_text}" | _escape_regex_chars);
   _increment;
-
-  if echo "${cleaned_output}" | grep -qE "${regex_pattern}"; then
+  # Use the `-e` flag to ensure patterns starting with a hyphen are treated correctly.
+  if echo "${cleaned_output}" | grep -qE -e "${escaped_expected_text}"; then
     okay "[$_test_num] PASSED: ${test_name} (Output contains pattern '${expected_text}')";
   else
     fatal "[$_test_num] FAILED: ${test_name} (Output did NOT contain pattern '${expected_text}')\nRaw Output:\n---\n${raw_output_string}\n---\nCleaned Output:\n---\n${cleaned_output}\n---";
@@ -236,23 +241,21 @@ _assert_output_equals(){
   local expected_text="$3";
   
   local cleaned_output;
-  cleaned_output=$(_strip_ansi_escapes "${raw_output_string}");
+  # This call is already correct from our previous fix.
+  cleaned_output=$(printf "%s" "${raw_output_string}" | _strip_ansi_escapes);
 
   # Trim leading/trailing whitespace from the cleaned output for exact comparison
-  local trimmed_cleaned_output=$(echo "${cleaned_output}" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//');
-
-  # Escape expected_text for safety, although for exact equality, it's less critical.
-  local escaped_expected_text;
-  escaped_expected_text=$(_escape_regex_chars "${expected_text}");
-  _increment;
-
-  if [[ "${trimmed_cleaned_output}" == "${escaped_expected_text}" ]]; then
+  local trimmed_cleaned_output;
+  trimmed_cleaned_output=$(echo "${cleaned_output}" | sed -E 's/^[[:space:]]+//;s/[[:space:]]+$//');
+    _increment;
+  # THE FIX: No escaping needed for literal string comparison.
+  # We simply compare the trimmed, cleaned output directly.
+  if [[ "${trimmed_cleaned_output}" == "${expected_text}" ]]; then
     okay "[$_test_num] PASSED: ${test_name} (Output equals '${expected_text}')";
   else
     fatal "[$_test_num] FAILED: ${test_name} (Output expected '${expected_text}', got '${trimmed_cleaned_output}')\nRaw Output:\n---\n${raw_output_string}\n---\nCleaned Output:\n---\n${cleaned_output}\n---";
   fi;
 }
-
 ################################################################################
 #
 #  _assert_file_exists
@@ -272,7 +275,7 @@ _assert_file_exists(){
     okay "[$_test_num] PASSED: ${test_name} (File exists: ${file_path})";
   else
     fatal "[$_test_num] FAILED: ${test_name} (File DOES NOT exist: ${file_path})";
-  fi;
+  fi
 }
 
 ################################################################################
@@ -294,7 +297,7 @@ _assert_file_not_exists(){
     okay "[$_test_num] PASSED: ${test_name} (File DOES NOT exist: ${file_path})";
   else
     fatal "[$_test_num] FAILED: ${test_name} (File SHOULD NOT exist, but does: ${file_path})";
-  fi;
+  fi
 }
 
 ################################################################################
@@ -308,14 +311,11 @@ _assert_file_not_exists(){
 # Returns: The stripped string to stdout.
 # Local Variables: str
 _strip_ansi_escapes(){
-    local str="$1";
-    # Remove all ANSI escape sequences
-    # ESC [ ( [0-9;]* )? [A-Za-z]
-    # This regex is a common way to match and remove ANSI SGR (Select Graphic Rendition) codes.
-    printf "%s" "${str}" | sed -E 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})*)?[mGK]//g';
+    # THE FIX: Remove the argument processing and internal pipe.
+    # This now correctly processes data piped *to* it.
+    sed -E 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})*)?[mGK]//g';
     return 0;
 }
-
 ################################################################################
 #
 #  _escape_regex_chars
@@ -327,14 +327,10 @@ _strip_ansi_escapes(){
 # Returns: Escaped string to stdout.
 # Local Variables: str
 _escape_regex_chars(){
-  local str="$1";
-  # Escape common regex metacharacters in POSIX Extended Regular Expressions (ERE).
-  # Curly braces {} are removed from the character class as they can cause issues
-  # when used inside [] in some sed implementations if not specifically for a range.
-  printf "%s" "${str}" | sed -E 's/([.^$*+?()[\]|])/\\\1/g';
-  return 0;
+    # THE FIX: Make this a pure filter as well for consistency.
+    sed -E 's/([.^$*+?()[\]|])/\\\1/g';
+    return 0;
 }
-
 ################################################################################
 #
 #  test_setup
@@ -380,14 +376,14 @@ __get_mode(){
     BOOKDB_ON_PATH=$(command -v bookdb 2>/dev/null || echo "");
 
     if [[ "${BOOKDB_ON_PATH}" == "${HOME}/.local/bin/fx/bookdb" ]]; then
-        info "Testbook is using installed bookdb ($BOOKDB_ON_PATH)";
-        TESTBOOK_BOOKDB_PATH_TYPE="runtime";
-        return 0;
+      info "Testbook is using installed bookdb ($BOOKDB_ON_PATH)";
+      TESTBOOK_BOOKDB_PATH_TYPE="runtime";
+      return 0;
     else
-        warn "Testbook is using local project bookdb (${BOOKDB_SCRIPT}) by bypassing PATH lookup.";
-        TESTBOOK_BOOKDB_PATH_TYPE="local";
-        return 1;
-    fi;
+      warn "Testbook is using local project bookdb (${BOOKDB_SCRIPT}) by bypassing PATH lookup.";
+      TESTBOOK_BOOKDB_PATH_TYPE="local";
+      return 1;
+    fi
 }
 
 #-------------------------------------------------------------------------------
@@ -435,14 +431,12 @@ main(){
   status_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" status --printer stdoutt);
   _assert_success "bookdb status command" $?;
 
+  # magic "hello! ${status_output}";
 
-
+  # echo -e "${status_output}" | grep "sqlite"; echo $?;
+  # magic "ok"
   _assert_output_contains "Status output contains test DB file name" "${status_output}" "bookdb-test.sqlite";
 
-  magic "HELLO YES";
-  stderr "OMG ${status_output}";
-
-  stderr "YAY $status_output" 
 
   _assert_output_contains "Status output contains GLOBAL project label" "${status_output}" "Projects:";
   _assert_output_contains "Status output contains GLOBAL project entry" "${status_output}" "- GLOBAL";
@@ -494,6 +488,8 @@ main(){
   _assert_success "Set API_KEY in webapp.secrets" $?;
   TEST_MODE=0 "${BOOKDB_SCRIPT}" setv TIMEOUT=30 @webapp.VAR.secrets --printer stdoutt;
   _assert_success "Set TIMEOUT in webapp.secrets" $?;
+  
+  warn "HELLO!";
 
   # Test `getv` to retrieve a value (getv output is pure data, no --printer needed)
   local API_KEY_VAL;
@@ -504,11 +500,11 @@ main(){
   # Test updating a value
   TEST_MODE=0 "${BOOKDB_SCRIPT}" setv TIMEOUT=60 @webapp.VAR.secrets --printer stdoutt;
   _assert_success "Update TIMEOUT" $?;
+
   local TIMEOUT_VAL;
   TIMEOUT_VAL=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv TIMEOUT @webapp.VAR.secrets);
   _assert_success "Get updated TIMEOUT" $?;
   _assert_output_equals "Updated TIMEOUT matches" "${TIMEOUT_VAL}" "60";
-
 
   __banner "Phase 2: Numerical Operations and Search" "green";
   # Test `incv` and `decv`
@@ -526,6 +522,7 @@ main(){
   _assert_output_equals "Final COUNTER value is 104" "${COUNTER_VAL}" "104";
 
   # Test `find` (find outputs messages, so requires --printer)
+
   local find_output;
   find_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" find API_KEY --printer stdoutt);
   _assert_success "Find API_KEY" $?;
@@ -568,14 +565,18 @@ main(){
   ! grep -q "API_KEY" "${test_env_file}";
   _assert_success "test_local.env no longer contains API_KEY" $?;
 
-  # Test `export keystore` (export outputs messages, requires --printer)
-  local export_file="webapp_secrets_exported.env";
-  TEST_MODE=0 "${BOOKDB_SCRIPT}" export keystore @webapp.VAR.secrets --printer stdoutt;
-  _assert_success "Export webapp.secrets keystore" $?;
-  # Verify the export file was created and has content
-  _assert_file_exists "Export file created" "${export_file}";
-  grep -q "API_KEY=\"key-super-secret-12345\"" "${export_file}";
-  _assert_success "Exported file has API_KEY" $?;
+warn "before the store";
+
+# Test `export keystore`
+local export_file="webapp_secrets_exported.env";
+TEST_MODE=0 "${BOOKDB_SCRIPT}" export keystore @webapp.VAR.secrets --printer stdoutt </dev/null; # THE FIX is here
+_assert_success "Export webapp.secrets keystore" $?;
+
+# Verify the export file was created and has content
+_assert_file_exists "Export file created" "${export_file}";
+grep -q "API_KEY=\"key-super-secret-12345\"" "${export_file}";
+_assert_success "Exported file has API_KEY" $?;
+
 
   # Test `import` - public keys (import outputs messages, requires --printer)
   TEST_MODE=0 "${BOOKDB_SCRIPT}" import "${HOME}/bookdb_test_public.env" -y --printer stdoutt;
@@ -586,7 +587,7 @@ main(){
   # Verify private key was NOT imported
   local private_key_val;
   private_key_val=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv _PRIVATE_KEY @myapp.VAR.apis || true); # Suppress error if not found
-  if [[ -n "${private_key_val}" ]]; then fatal "FAILED: Private key was imported when it should not have been (public scope)."; fi;
+  if [[ -n "${private_key_val}" ]]; then fatal "FAILED: Private key was imported when it should not have been (public scope)."; fi
   okay "PASSED: Private key NOT imported (public scope)";
 
   # Test `import` - private keys (import outputs messages, requires --printer)
@@ -598,7 +599,7 @@ main(){
   # Verify public key was NOT imported
   local public_key_val;
   public_key_val=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv PUBLIC_KEY @myapp.VAR.apis || true); # Suppress error if not found
-  if [[ -n "${public_key_val}" ]]; then fatal "FAILED: Public key was imported when it should not have been (private scope)."; fi;
+  if [[ -n "${public_key_val}" ]]; then fatal "FAILED: Public key was imported when it should not have been (private scope)."; fi
   okay "PASSED: Public key NOT imported (private scope)";
 
   # Test `import` - all keys (import outputs messages, requires --printer)
@@ -619,35 +620,42 @@ main(){
   local google_api_key_check;
   google_api_key_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv GOOGLE_API_KEY @myapp.VAR.apis);
   _assert_output_equals "Addonly: existing key unchanged" "${google_api_key_check}" "key-for-google";
+
+
   # NEW_SERVICE_KEY should have been added
   local new_service_key_check;
   new_service_key_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv NEW_SERVICE_KEY @myapp.VAR.apis);
   _assert_output_equals "Addonly: new key added" "${new_service_key_check}" "this_value_should_be_added";
 
-
-  # Test `migrate` (migrate outputs messages, requires --printer)
+  # Test `migrate`
   local migrate_output;
-  migrate_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" migrate --printer stdoutt);
+  migrate_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" migrate --printer stdoutt </dev/null);
   _assert_success "Run migrate command" $?;
-  # Verify the migration directory was created (output contains the directory name)
-  local migrate_dir_name=$(echo "${migrate_output}" | grep -o 'bookdb_fullbak_[0-9_]\+');
+  # THE FIX #1: Pipe to `head -n 1` to get only the first match.
+  local migrate_dir_name;
+  migrate_dir_name=$(echo "${migrate_output}" | grep -o 'bookdb_fullbak_[0-9_]\+' | head -n 1);
   _assert_output_contains "Migrate output indicates directory" "${migrate_output}" "Migration complete.";
   _assert_output_contains "Migration directory name captured" "${migrate_dir_name}" "bookdb_fullbak_";
-  _assert_file_exists "Migration directory exists" "${TEST_HOME}/${migrate_dir_name}"; # Check in TEST_HOME
+  # THE FIX #2: Use the correct assertion for a directory.
+  _assert_dir_exists "Migration directory exists" "${TEST_HOME}/${migrate_dir_name}";
   _assert_file_exists "Migrated GLOBAL_MAIN.env exists" "${TEST_HOME}/${migrate_dir_name}/GLOBAL_MAIN.env";
   _assert_file_exists "Migrated myapp_apis.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_apis.env";
   _assert_file_exists "Migrated myapp_MAIN.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_MAIN.env";
   _assert_file_exists "Migrated myapp_secrets.env exists" "${TEST_HOME}/${migrate_dir_name}/myapp_secrets.env";
 
-
-  # Test `backup` (backup outputs messages, requires --printer)
+  
+  # Test `backup`
   local backup_output;
-  backup_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" backup --printer stdoutt);
+  backup_output=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" backup --printer stdoutt </dev/null);
   _assert_success "Run backup command" $?;
-  # Verify the backup tarball was created (output contains the filename)
-  local backup_tar_name=$(echo "${backup_output}" | grep -o 'bookdb_backup_[0-9_]\+\.tar\.gz');
+
+  warn "balllz (${backup_output}) <-- backup output?";
+  # THE FIX: Use a more precise grep to extract only the filename.
+  local backup_tar_name;
+  backup_tar_name=$(echo "${backup_output}" | grep -o 'bookdb_backup_[0-9_]\+\.tar\.gz' | head -n 1);
   _assert_file_exists "Backup tarball exists" "${TEST_HOME}/${backup_tar_name}";
 
+  # _assert_dir_exists
 
   __banner "Phase 5: Deletion and Cleanup" "green";
   # Test `delv` (delv outputs messages, requires --printer)
@@ -655,7 +663,7 @@ main(){
   _assert_success "Delete COUNTER variable" $?;
   local counter_exists_check;
   counter_exists_check=$(TEST_MODE=0 "${BOOKDB_SCRIPT}" getv COUNTER @webapp.VAR.secrets || true); # Suppress error for not found
-  if [[ -n "${counter_exists_check}" ]]; then fatal "FAILED: COUNTER variable still exists after deletion."; fi;
+  if [[ -n "${counter_exists_check}" ]]; then fatal "FAILED: COUNTER variable still exists after deletion."; fi
   okay "PASSED: COUNTER variable successfully deleted.";
 
 
@@ -715,5 +723,7 @@ main(){
 
   __banner "\n\n✅ All bookdb commands tested successfully! Test environment fully reset." "green";
 }
+
+
 main "${@}";
 
