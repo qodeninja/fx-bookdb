@@ -28,7 +28,7 @@
 
 # Define some colors for clear output headers
   readonly  red2=$'\x1B[38;5;197m';
-  readonly  red=$'\x1B[38;5;009';
+  readonly  red=$'\x1B[38;5;9m';
   readonly  orange=$'\x1B[38;5;214m';
   readonly  yellow=$'\x1B[33m';  
 
@@ -48,63 +48,64 @@
 
   readonly LINE="$(printf '%.0s-' {1..54})";
 
+
+
 ################################################################################
 #
-#  stderr
+#  stderr (Robust Version)
 #
 ################################################################################
-# Description: Controls output based on QUIET_MODE and force parameter.
+# Description: Core printer. Handles color, test redirection, and quietness.
 # Arguments:
-#   1: msg (string) - The message to print.
-#   2: force_output (string, optional) - Pass "force" to bypass QUIET_MODE.
-# Returns: 0.
-# Local Variables: msg, force_output
-# Base printer function for stderr messages.
-# Arguments:
-#   1: msg (string) - The message to print.
-#   2: force_output (string, optional) - Pass "force" to bypass QUIET_MODE (for error/fatal).
-#   3: is_error_level (string, optional) - Pass "error" for error/fatal messages, to ensure they always go to stderr.
+#   1: color_var (string) - The ANSI color code variable (e.g., "$red").
+#   2: msg (string) - The message to print.
+#   3: is_error_level (string, optional) - Pass "error" for error/fatal messages.
+#   4: force_output (string, optional) - Pass "force" to bypass QUIET_MODE.
 stderr(){
-  local msg="$1";
-  local force_output="$2";
-  local is_error_level="$3"; # "error" if it's a fatal/error message
+  local color_var="$1";
+  local msg="$2";
+  local is_error_level="$3";
+  local force_output="$4";
+
+  # Construct the full, properly terminated message string FIRST.
+  local full_msg="${color_var}${msg}${xx}";
 
   # If in TEST_MODE and --printer stdoutt is active, and it's NOT an error/fatal message,
   # redirect output to stdoutt.
   if [[ "$TEST_MODE" -eq 0 && -n "$opt_printer_test" && -z "$is_error_level" ]]; then
-    stdoutt "${msg}"; # Use stdoutt function for redirection
+    stdoutt "${full_msg}";
     return 0;
-  fi
+  fi;
 
-  # Otherwise (not in test override, or it's an error/fatal message),
-  # follow normal stderr quietness rules.
+  # Otherwise, follow normal stderr quietness rules.
   if [[ -z "$QUIET_MODE" ]] || [[ -n "$force_output" ]]; then
-    printf "%b" "${msg}${xx}\n" 1>&2;
-  fi
+    printf "%b\n" "${full_msg}";
+  fi;
   return 0;
 }
 
 # New function: Prints directly to stdout (for test capture).
-# Arguments:
-#   1: msg (string) - The message to print.
 stdoutt(){
   local msg="$1";
-  printf "%b" "${msg}${xx}\n";
+  printf "%b\n" "${msg}";
   return 0;
 }
 
-# THE FIX: All wrappers now accept printf-style arguments.
-# They format the final message string into `msg` before calling stderr.
-fatal(){  stderr "${red}${*}" "force" "error"; exit 1; }
-error(){ stderr "${red}${*}" "force" "error"; }
-dev(){ stderr "${red2}${*}" "force"; }
-warn(){  stderr "${orange}${*}"; }
-okay(){  stderr  "${green}${*}"; }
-info(){  stderr  "${blue}${*}"; }
-magic(){ stderr "${purple}${*}" "force"; }
-trace(){ stderr "${grey}->${*}"; }
-log(){ stderr "${grey}${*}"; }
-line(){ stderr "$LINE"; }
+# Corrected wrappers that pass the color and message separately.
+fatal(){  stderr "$red" "${*}" "error" "force"; exit 1; }
+error(){ stderr "$red" "${*}" "error" "force"; }
+warn(){  stderr "$orange" "${*}"; }
+okay(){  stderr "$green" "${*}"; }
+info(){  stderr "$blue" "${*}"; }
+
+log(){ stderr "$white2" "${*}"; }
+line(){ stderr "$grey" "$LINE"; }
+
+magic(){ is_dev && stderr "$purple" "${*}" "" "force"; }
+trace(){ is_dev && stderr "$grey" "⁙ ${*}"; }
+debug(){ is_dev && stderr "$cyan" "${*}" "" "force"; }
+dev(){ is_dev && stderr "$red2" "${*}" "" "force"; }
+
 
 #-------------------------------------------------------------------------------
 #  Flags
@@ -446,37 +447,34 @@ bootstrap(){
 #  select_db
 #
 ################################################################################
-# Description: Determines which SQLite database file to use (main or test).
-# Arguments:
-#   1: other_db (string, optional) - Path to an alternative database file.
-# Sets Global: THIS_DB
+# Description: Sets the active database for the current command execution.
+# Sets Global: THIS_DB, THIS_BASE_NAME
 # Returns: 0
-# Local Variables: other_db
+
 select_db(){
-  local other_db="$1";
+  # Priority 1: TEST_MODE always overrides everything.
+  if [[ -n "$TEST_MODE" && "$TEST_MODE" -eq 0 ]]; then
+    THIS_DB="$BOOK_TEST_DB";
+    THIS_BASE_NAME="test";
+    return 0;
+  fi;
 
-  if [ -n "$other_db" ] && [ -f "$other_db" ]; then
-    THIS_DB="$other_db";
-  elif [ ! -z "$TEST_MODE" ]; then
-    [ "$TEST_MODE" -eq 0 ] && THIS_DB="$BOOK_TEST_DB";
-  else
-    # Read the active base name from BOOK_BASE_CURSOR
-    local base_name;
-    if [[ -f "${BOOK_BASE_CURSOR}" ]]; then
-      base_name=$(cat "${BOOK_BASE_CURSOR}");
-    fi
-    # If the file doesn't exist or is empty, default base_name to "main"
-    if __is_empty "${base_name}"; then
-      base_name="main";
-    fi
-    # Set the global THIS_BASE_NAME variable
-    THIS_BASE_NAME="${base_name}";
-    # Get the full path using __get_base_path
-    THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
-  fi
+  # Priority 2: Read the active base name from the cursor file.
+  local base_name;
+  if [[ -f "${BOOK_BASE_CURSOR}" ]]; then
+    base_name=$(cat "${BOOK_BASE_CURSOR}");
+  fi;
 
-  [ -z "$THIS_DB" ] && THIS_DB="$BOOK_DB";
+  # Priority 3: If cursor is empty or doesn't exist, default to "main".
+  if __is_empty "${base_name}"; then
+    base_name="main";
+  fi;
+
+  # Set the global variables based on the resolved name.
+  THIS_BASE_NAME="${base_name}";
+  THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
   return 0;
+
 }
 
 ################################################################################
@@ -530,6 +528,9 @@ is_dev(){
   [ -n "$DEV_MODE" ] && [ "$DEV_MODE" -eq 0 ];
   return $?;
 }
+
+
+
 
 ################################################################################
 #
@@ -676,9 +677,10 @@ _create_base(){
     base_path=$(__get_base_path "$base_name");
 
     if [[ -f "${base_path}" ]]; then
-        error "Database '${base_name}' already exists.";
-        return 1;
+      trace "Database '${base_name}' found.";
+      return 0; #not an error if it exists, we can use it
     fi
+
 
     if ! is_rw_filepath "${base_path}"; then
         error "Cannot create database: '${base_path}' is not writable.";
@@ -722,12 +724,13 @@ _remove_base(){
 #  __db_query
 #
 ################################################################################
-# Description: Executes an SQLite query against the active database.
+# Description: Executes a concurrency-safe SQLite query using flock.
 # Arguments:
 #   1: query (string) - The SQL query to execute.
 #   @: additional_sqlite3_args (string) - Any arguments to pass directly to sqlite3.
 # Returns: Exit status of sqlite3. Prints query results to stdout.
-# Local Variables: ret, query, output, clean_output
+# Local Variables: ret, query
+
 __db_query(){
   local ret=1;
   local query="$1";
@@ -736,32 +739,47 @@ __db_query(){
   if ! command -v sqlite3 >/dev/null 2>&1; then
     error "sqlite3 command not found.";
     return 1;
-  fi
+  fi;
 
   if [[ ! -f "${THIS_DB}" ]]; then
     error "Database file does not exist: ${THIS_DB}.";
     return 1;
-  fi
-  [ ! -f "${BOOK_LOCK}" ] && touch ${BOOK_LOCK};
+  fi;
+
+  # Ensure the lock file exists for flock to use.
+  touch "${BOOK_LOCK}" || { error "Could not create or touch lock file: ${BOOK_LOCK}"; return 1; };
+
   # Wrap the entire sqlite3 call in a subshell managed by flock.
   (
     flock -x 200 # Acquire an exclusive lock on file descriptor 200
 
     local output;
-    output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2>&1);
-    ret=$?;
+    local sqlite_stderr;
 
-    if ! sqlite3 "$@" "${THIS_DB}" "${query}" >/dev/null 2>&1; then      
-      printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;      printf "%b\n" "${red}SQLite Error: ${output}${xx}" >&2;    else
+    # Execute sqlite3 only ONCE.
+    # Capture stdout to `output` and stderr to `sqlite_stderr`.
+    {
+        output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2> >(sqlite_stderr=$(cat); cat >&2));
+        ret=$?;
+    }
+
+    if [[ ${ret} -ne 0 ]]; then
+      # On failure, print our own error and the captured stderr from sqlite3.
+      # Use direct printf here as we are in a subshell.
+      printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;
+      if [[ -n "$sqlite_stderr" ]]; then
+          printf "%b\n" "${red}SQLite Error: ${sqlite_stderr}${xx}" >&2;
+      fi;
+    else
+      # On success, print only the captured stdout.
       printf "%s" "${output%$'\n'}";
-    fi
+    fi;
     
     exit ${ret};
   ) 200>"${BOOK_LOCK}";
   
   return $?;
 }
-
 ################################################################################
 #
 #  __persist_cursor
@@ -1091,7 +1109,7 @@ __link_to_profile(){
 
   # Check if the link already exists by looking for the full line content
   if grep -qF -- "${link_line_content}" "${profile_file}" 2>/dev/null; then
-    log "Profile '${profile_file}' is already linked to bookdb.";
+    trace "Profile link '${profile_file}' found.";
     return 0;
   else
     log "Adding bookdb configuration to '${profile_file}'...";
@@ -1385,12 +1403,12 @@ do_ls(){
       if __is_empty "${all_bases}"; then
           info "No bases found.";
       else
-          info "Available Bases:";
+          log "Available Bases:";
           echo "${all_bases}" | while read -r base_name; do
               if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
-                  info "  * %s" "${base_name}";
+                  info "  * ${base_name}";
               else
-                  info "    %s" "${base_name}";
+                  trace "    ${base_name}";
               fi
           done
       fi
@@ -1457,7 +1475,7 @@ do_select_base(){
 # Command: bookdb base
 # Job: Prints the active base name.
 do_current_base(){
-    info "Active Base: %s" "${THIS_BASE_NAME}";
+    info "Active Base: ${THIS_BASE_NAME}";
     return 0;
 }
 
@@ -1550,20 +1568,60 @@ ___new_project(){
 #  do_new
 #
 ################################################################################
-# Description: Creates a new project or key-value namespace.
+# Description: High-order dispatcher for creating new entities (base, project, keyval).
 # Arguments:
-#   1: what (string) - "project" or "keyval".
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, what, ns_name
+#   1: what (string) - "base", "project", or "keyval".
+# Returns: Exit status of the called helper function.
 function do_new(){
     local what="$1";
-    shift; # Shift past 'what' argument
+    local ns_name="${opt_ns}";
+
+    if __is_empty "${what}" || __is_empty "${ns_name}"; then
+        error "Usage: bookdb new <base|project|keyval> --ns <name>";
+        return 1;
+    fi;
+
     case "$what" in
-        (base) _do_new_base "$@"; ;;
-        (project) _do_new_project "$@"; ;;
-        (keyval) _do_new_keyval "$@"; ;;
-        (*) error "Usage: bookdb new <base|project|keyval> --ns <name>"; return 1; ;;
-    esac
+        (base) _do_new_base "${ns_name}"; ;;
+        (project) _do_new_project "${ns_name}"; ;;
+        (keyval) _do_new_keyval "${ns_name}"; ;;
+        (*) error "Invalid argument for 'new'. Use 'base', 'project', or 'keyval'."; return 1; ;;
+    esac;
+    return $?;
+}
+
+# New Mid-Ordinal helpers for `do_new`
+function _do_new_base(){
+    local base_name="$1";
+    __validate_name "${base_name}" "Base Name" || return 1;
+    __backup_db || return 1;
+    _create_base "${base_name}";
+    return $?;
+}
+function _do_new_project(){
+    local pns_name="$1";
+    __validate_name "${pns_name}" "Project Name" || return 1;
+    __backup_db || return 1;
+    ___new_project "${pns_name}";
+    return $?;
+}
+function _do_new_keyval(){
+    local kvns_name="$1";
+    __validate_name "${kvns_name}" "Key-Value Namespace Name" || return 1;
+    # Re-resolve context if a chain was passed on the command line for this specific action.
+    if [[ -n "${opt_context_chain}" ]]; then
+        __resolve_context || return 1;
+    fi;
+    __backup_db || return 1;
+    local name_sql="${kvns_name//\'/\'\'}";
+    __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('${name_sql}', ${BOOK_PNS_ID});";
+    if [[ $? -eq 0 ]]; then
+        okay "Key-value store '${kvns_name}' created in project '${BOOK_PNS_NAME}'.";
+        return 0;
+    else
+        error "Failed to create key-value store '${kvns_name}'. It may already exist in this project.";
+        return 1;
+    fi;
 }
 
 # New Mid-Ordinal helpers for `do_new`
@@ -2340,7 +2398,7 @@ __setup_sql(){
 # Description: Creates all necessary XDG+ compliant directories for bookdb.
 # Returns: 0 on success, 1 on fatal error.
 __setup_dirs(){
-  log "Checking for XDG+ directories...";
+  trace "Checking XDG+ directories...";
   mkdir -p "${BOOK_DATA}" "${BOOK_LIB}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_BIN}" || fatal "Failed to create directories.";
   return 0;
 }
@@ -2365,21 +2423,21 @@ __setup_confirm(){
   fi
   
   if is_user; then 
-    info "The installer will perform the following actions:\n";
+    warn "The installer will perform the following actions:\n";
 
     printf "  1. Create directories in: %s (and sub-paths)\n" "${_XDG_HOME}" >&2; 
     printf "  2. Copy script to:        %s\n" "${BOOK_LIB}/${BOOK_PREF}" >&2;
     printf "  3. Create symlink:        %s -> %s\n" "${BOOK_BIN}/${BOOK_PREF}" "${BOOK_LIB}/${BOOK_PREF}" >&2;
     printf "  4. Create RC file:        %s\n" "${BOOK_RC}" >&2;
     printf "  5. Add source line to:    %s\n" "${profile_file}" >&2;
-    printf "  6. Initialize database:   %s\n" "${BOOK_DB}" >&2;
+    printf "  6. Initialize database:   %s\n\n" "${BOOK_DB}" >&2;
 
     if ! __confirm_action "Proceed with full installation?"; then
       log "Installation cancelled.";
       return 1;
     fi
   else
-    dev "Dev mode skipped confirm prompt.";
+    debug "Dev mode skipped confirm prompt.";
   fi
   return 0;
 }
@@ -2414,7 +2472,7 @@ EOF
 ################################################################################
 # Description: Performs various checks to verify the bookdb installation state.
 # Returns: 0 if all checks pass, 1 otherwise.
-do_sanity_check(){
+dev_sanity(){
   local ret=0;
   info "Running sanity checks...";
   
@@ -2516,74 +2574,55 @@ do_sanity_check(){
 # Description: Installs or verifies the bookdb application.
 # Returns: 0 on success, 1 on failure.
 # Local Variables: ret, profile_file, script_path, _cp_path, _ln_path
-
-  do_install(){
+do_install(){
     local ret=1;
     local profile_file;
-    profile_file=$(__find_shell_profile);
 
+    __setup_dirs || return 1;
+    profile_file=$(__find_shell_profile);
     __setup_confirm "$profile_file" || return 1;
 
     # Create initial 'main' base and set it as active
     _create_base "main" || fatal "Failed to create initial 'main' database.";
     printf "%s" "main" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write initial base cursor.";
 
+    # --- Simplified Script Copy Logic ---
+    local script_path;
+    script_path=$(readlink -f "${APP_BOOKDB}");
+    local _cp_path="${BOOK_LIB}/${BOOK_PREF}";
+    if [[ ! -f "${script_path}" ]]; then
+      fatal "Failed to resolve source script path: ${APP_BOOKDB}.";
+    fi;
 
-    #_cp_path="${BOOK_LIB}/${BOOK_PREF}";
-    #_ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    trace "Installing script to '${_cp_path}'...";
 
-    # Resolve the actual path of the currently executing script
-    # local script_path;
-    # script_path=$(readlink -f "${APP_BOOKDB}");
+    cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory.";
+    chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
+    # --- End Simplified Logic ---
 
-    # if [[ ! -f "${script_path}" ]]; then
-    #     fatal "Failed to resolve script path: ${APP_BOOKDB}. Exiting.";
-    # fi
-
-    # Copy and permission the script (cp before ln -s)
-
-    # [ -f "${_cp_path}" ] && {
-    #   warn "Found older bookdb version. Updating.";
-    #   rm -f "${_cp_path}"; #removing old one...
-    
-    # }
-
-
-    #cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
-    #chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
-    _ln_path="${BOOK_BIN}/${BOOK_PREF}";
-    _cp_path=$(do_update);
-
-
-    # Create symlink
-    if [[ ! -e "${_ln_path}" ]]; then # Check if symlink/file exists at all
-      info "Creating symlink from '${_cp_path}' to '${_ln_path}'...";
-      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory: ${_ln_path}.";
-    elif [[ -L "${_ln_path}" && "$(readlink "${_ln_path}")" == "${_cp_path}" ]]; then
-      warn "Bin symlink already exists and is correct at '${_ln_path}'.";
+    local _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    if [[ ! -e "${_ln_path}" ]]; then
+      trace "Creating symlink from '${_cp_path}' to '${_ln_path}'...";
+      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory.";
     else
-      warn "A file or incorrect symlink already exists at '${_ln_path}'. Attempting to replace.";
-      rm -f "${_ln_path}" || error "Failed to remove existing file/symlink at '${_ln_path}'.";
-      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory after cleanup: ${_ln_path}.";
-    fi
+      trace "Bin symlink found."; # '${_ln_path}'.";
+    fi;
 
-    _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file: ${BOOK_RC}.";
-    okay "Bookdb RC file created at '${BOOK_RC}'.";
+    _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file.";
 
-    # Link the RC file to the user's main shell profile
+    trace "Bookdb RC file created at '${BOOK_RC}'.";
+
     __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration" || return 1;
-
-    __setup_sql || return 1; # Setup the database schema
-
+    
     if is_user; then
-      printf "\n[OKAY] Installation complete!\n\n" >&2;
-      printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
+      okay "Installation Ready."
+      warn "Restart shell or run 'source ${profile_file}' complete ." ;
     else
-      dev "Dev mode installation complete.";
-    fi
+      debug "Dev mode installation complete.";
+    fi;
     
     return 0;
-  }
+}
 
 ################################################################################
 #
@@ -2923,7 +2962,7 @@ options(){
   local local_args=();
   opt_quiet=; opt_projdb=; opt_keydb=; opt_context_chain=; opt_ns=; opt_yes=; opt_sanity=; opt_all=;
   opt_printer_test=; # ADDED: opt_printer_test
-  info "$1 $2"
+
   while [ $# -gt 0 ]; do
     case "$1" in
       (-a|--all) opt_all=1; shift; ;;
@@ -2998,11 +3037,13 @@ dispatch(){
     (install) do_install; ret=$?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; ret=$?; ;;
     (backup) do_backup; ret=$?; ;;
-    (sanity) do_sanity_check; ret=$?; ;; # New command for sanity checks
+    (sanity) dev_sanity; ret=$?; ;; # New command for sanity checks
     (*) error "Unknown command: ${cmd}"; usage; ;;
   esac
   return "${ret}";
 }
+
+
 
 ################################################################################
 #
@@ -3016,12 +3057,14 @@ dispatch(){
 main(){
   # STEP 1: PARSE FIRST, ALWAYS.
   # This ensures opt_* variables are available for all subsequent logic.
+
+  # ls_funcs $APP_BOOKDB;
   options "$@";
 
   # Set global quiet mode if the flag was passed.
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   
-  dev "Dev Mode Enabled. Safety Guards Disabled!";
+  dev "[==DEV==]";
   trace "Args:: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ] 6[ $6 ]";
 
   # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
