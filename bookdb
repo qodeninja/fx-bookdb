@@ -95,12 +95,12 @@ stdoutt(){
 
 # THE FIX: All wrappers now accept printf-style arguments.
 # They format the final message string into `msg` before calling stderr.
-fatal(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${red}${msg}" "force" "error"; exit 1; }
-error(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${red}${msg}" "force" "error"; }
+fatal(){  stderr "${red}${*}" "force" "error"; exit 1; }
+error(){ stderr "${red}${*}" "force" "error"; }
 dev(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${red2}${msg}" "force"; }
-warn(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${orange}${msg}"; }
-okay(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${green}${msg}"; }
-info(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${blue}${msg}"; }
+warn(){  stderr "${orange}${*}"; }
+okay(){  stderr "${green}${*}"; }
+info(){  stderr "${blue}${*}"; }
 magic(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${purple}${msg}" "force"; }
 trace(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${grey}...${msg}"; }
 log(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${grey}${msg}"; }
@@ -2028,7 +2028,7 @@ __setup_sql(){
 # Description: Creates all necessary XDG+ compliant directories for bookdb.
 # Returns: 0 on success, 1 on fatal error.
 __setup_dirs(){
-  log "Creating XDG+ directories...";
+  log "Checking for XDG+ directories...";
   mkdir -p "${BOOK_SHARE}" "${BOOK_LIB}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_BIN}" || fatal "Failed to create directories.";
   return 0;
 }
@@ -2140,12 +2140,11 @@ do_sanity_check(){
 
 ################################################################################
 #
-#  do_install
+#  do_update
 #
 ################################################################################
-# Description: Installs or verifies the bookdb application.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, profile_file, script_path, _cp_path, _ln_path
+# Does the file copy work only, in case all we need to do is update the bin
+# install uses this to get the right copy path
 
   do_update(){
     local ret=1 mode;
@@ -2157,14 +2156,12 @@ do_sanity_check(){
       local script_path;
       script_path=$(readlink -f "${BOOK_PROJECT_HOME}");
 
-      info "path is $script_path";
       if [[ "$script_path" =~ ^.*repo.*$ ]]; then
-        mode="Your cool repo";
+        mode="Fresh install from the repo";
       elif [[ ! "$script_path" =~ ^.*lib.*$ ]]; then
-
-        mode="Some other custom place";
+        mode="Custom install from download";
       else
-        noop; # is this getting lib again??
+        noop; # is this getting lib again??potential error case
       fi
 
     fi
@@ -2186,19 +2183,27 @@ do_sanity_check(){
 
 
     is_file "${_cp_path}" && {
-      warn "Found older bookdb version. Updating.";
+      #warn "Found older bookdb version. Updating.";
       rm -f "${_cp_path}"; #removing old one...
-      mode="Update";
+      mode="Updating to newer version";
     }
 
-    info "$mode bookdb";
+
     cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script!  ${_cp_path}.";
     chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
+    okay "$mode -> bookdb";
 
-    okay "you did it!";
     echo "$_cp_path";
   }
 
+################################################################################
+#
+#  do_install
+#
+################################################################################
+# Description: Installs or verifies the bookdb application.
+# Returns: 0 on success, 1 on failure.
+# Local Variables: ret, profile_file, script_path, _cp_path, _ln_path
 
   do_install(){
     local ret=1;
@@ -2600,14 +2605,16 @@ EOF
 # Local Variables: local_args, last_arg_idx, last_arg
 options(){
   local local_args=();
-  opt_quiet=; opt_projdb=; opt_keydb=; opt_context_chain=; opt_ns=; opt_yes=;
+  opt_quiet=; opt_projdb=; opt_keydb=; opt_context_chain=; opt_ns=; opt_yes=; opt_sanity=;
   opt_printer_test=; # ADDED: opt_printer_test
+  info "$1 $2"
   while [ $# -gt 0 ]; do
     case "$1" in
       (-q|--quiet) opt_quiet=1; shift; ;;
       (-y|--yes) opt_yes=1; shift; ;;
       (-p|--projdb) opt_projdb="$2"; shift 2; ;;
       (-k|--keydb) opt_keydb="$2"; shift 2; ;;
+      (-S|--sanity) opt_sanity="0"; ;;
       (--ns) opt_ns="$2"; shift 2; ;;
       (--pr*) 
         if [[ "$2" == "stdoutt" ]]; then 
@@ -2648,7 +2655,7 @@ dispatch(){
   case "$cmd" in
     (st|status) do_status; ret=$?; ;;
     (c|cursor) do_cursor; ret=$?; ;;
-    (noop) noop "${ARGS[1]}"; ret=0; ;;
+    (noop) noop "${ARGS[1]}";exit 0; ;;
     (export) do_export "${ARGS[1]}"; ret=$?; ;;
     (import) do_import "${ARGS[1]}"; ret=$?; ;;
     (migrate) do_migrate; ret=$?; ;;
@@ -2689,11 +2696,13 @@ main(){
   # STEP 1: PARSE FIRST, ALWAYS.
   # This ensures opt_* variables are available for all subsequent logic.
   options "$@";
-  dev "$1 $2 $3 $4 $5 $6";
+
   # Set global quiet mode if the flag was passed.
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   
   dev "Dev Mode Enabled. Safety Guards Disabled!";
+  trace "Args:: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ] 6[ $6 ]";
+
   # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
   # These commands must run before any state (like DB existence) is assumed.
   local cmd_pre_state="${ARGS[0]}";
