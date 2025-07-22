@@ -1574,46 +1574,6 @@ do_find(){
   fi
 }
 
-################################################################################
-#
-#  do_ls
-#
-################################################################################
-# Description: Lists various database entities.
-do_ls(){
-  local ret=1 pref;
-  local what="${1:-keys}"; # Default to listing keys
-  case "${what}" in
-    (all) do_ls_all; ret=$?; ;;
-    (bases)
-      local all_bases=$(_list_bases);
-      if __is_empty "${all_bases}"; then
-          info "No bases found.";
-      else
-          trace "Available Bases:";
-          echo "${all_bases}" | while read -r base_name; do
-              [[ "${base_name}" == "${THIS_BASE_NAME}" ]] && pref="* " || pref="  ";
-              info "${pref}${base_name}";
-          done
-      fi
-      ret=0;
-      ;;
-    (project)
-      __db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;"; ret=$?; ;;
-    (vars)
-      local sql="SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${BOOK_PNS_ID} ORDER BY kvns_name;";
-      __db_query "${sql}"; ret=$?; ;;
-    (keys)
-      trace "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-      local sql="SELECT var_key FROM vars WHERE kvns_id_fk = ${BOOK_KVNS_ID} ORDER BY var_key;";
-      __db_query "${sql}"; ret=$?; ;;
-    (*)
-      error "Invalid argument for 'ls'. Use 'all', 'bases', 'project', 'vars', or 'keys'.";
-      return 1;
-      ;;
-  esac
-  return "${ret}";
-}
 
 ################################################################################
 #
@@ -1739,7 +1699,7 @@ ___new_project(){
 #   1: what (string) - "base", "project", or "keyval".
 #   2...: name (string, optional) - The name of the entity to create.
 # Returns: Exit status of the called helper function.
-function do_new(){
+do_new(){
     local what="$1";
     # Prefer positional name, but fallback to --ns flag for script compatibility
     local name="${2:-${opt_ns}}"; 
@@ -1759,7 +1719,7 @@ function do_new(){
 }
 
 # Mid-Ordinal helpers for `do_new`
-function _do_new_base(){
+_do_new_base(){
     local base_name="$1";
     __validate_name "${base_name}" "Base Name" || return 1;
     # User-level guard: check if base already exists before calling low-level create
@@ -1772,7 +1732,7 @@ function _do_new_base(){
     return $?;
 }
 
-function _do_new_project(){
+_do_new_project(){
     local pns_name="$1";
     __validate_name "${pns_name}" "Project Name" || return 1;
     __backup_db || return 1;
@@ -1780,7 +1740,7 @@ function _do_new_project(){
     return $?;
 }
 
-function _do_new_keyval(){
+_do_new_keyval(){
     local kvns_name="$1";
     __validate_name "${kvns_name}" "Keystore Name" || return 1;
     # Re-resolve context if a chain was passed on the command line for this specific action.
