@@ -1722,7 +1722,7 @@ ___new_project(){
     local new_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${name_sql}';" );
     if __is_empty "${new_pns_id}"; then error "Failed to retrieve ID for new project '${pns_name}'."; return 1; fi
     __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${new_pns_id});";
-    log "Default key-value store 'MAIN' created/verified for project '${pns_name}'.";
+    okay "Default key-value store 'MAIN' created/verified for project '${pns_name}'.";
     return 0;
   fi
   error "Failed to create project '${pns_name}'.";
@@ -2425,7 +2425,8 @@ do_import_alt(){
 ################################################################################
 # Description: Creates or verifies the SQLite database schema for bookdb.
 __setup_sql(){
-  log "Creating/verifying database schema...";
+  identify;
+  trace "Creating/verifying database schema...";
   [ -z "${THIS_DB}" ] && select_db;
 
   touch "${THIS_DB}" || fatal "Failed to create database file: ${THIS_DB}";
@@ -2451,7 +2452,8 @@ __setup_sql(){
 ################################################################################
 # Description: Creates all necessary XDG+ compliant directories for bookdb.
 __setup_dirs(){
-  log "Checking for XDG+ directories...";
+  identify;
+  trace "Checking for XDG+ directories...";
   mkdir -p "${BOOK_DATA}" "${BOOK_LIB}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_BIN}" || fatal "Failed to create directories.";
   return 0;
 }
@@ -2481,7 +2483,7 @@ __setup_confirm(){
 
     if ! __confirm_action "Proceed with installation/update?"; then log "Action cancelled."; return 1; fi
   else
-    devlog "Dev mode skipped confirm prompt.";
+    dev "Dev mode skipped confirm prompt.";
   fi
   return 0;
 }
