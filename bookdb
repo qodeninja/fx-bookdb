@@ -97,13 +97,13 @@ stdoutt(){
 # They format the final message string into `msg` before calling stderr.
 fatal(){  stderr "${red}${*}" "force" "error"; exit 1; }
 error(){ stderr "${red}${*}" "force" "error"; }
-dev(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${red2}${msg}" "force"; }
-warn(){  stderr "${orange}${*}"; }
-okay(){  stderr "${green}${*}"; }
-info(){  stderr "${blue}${*}"; }
-magic(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${purple}${msg}" "force"; }
-trace(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${grey}...${msg}"; }
-log(){ local fmt="$1"; shift; local msg; printf -v msg "$fmt" "$@"; stderr "${grey}${msg}"; }
+dev(){ stderr "${red2}${*}" "force"; }
+warn(){  stderr  "${orange}${*}"; }
+okay(){  stderr  "${green}${*}"; }
+info(){  stderr  "${blue}${*}"; }
+magic(){ stderr "${purple}${*}" "force"; }
+trace(){ stderr "${grey}...${*}"; }
+log(){ stderr "${grey}${*}"; }
 line(){ stderr "$LINE"; }
 
 #-------------------------------------------------------------------------------
@@ -127,9 +127,6 @@ line(){ stderr "$LINE"; }
 
   TEST_MODE=${TEST_MODE:-};
 
-  #magic "Project ? ${BOOK_PROJECT_HOME}";
-  #magic "Self ? ${BOOK_PATH} using 0 ";
-  #magic "Bash ? ${APP_BOOKDB} using BASH0 ";
 #-------------------------------------------------------------------------------
 #  XDG+
 #-------------------------------------------------------------------------------
@@ -152,7 +149,8 @@ line(){ stderr "$LINE"; }
 
   readonly BOOK_TEST_DB="${BOOK_DATA}/bookdb-test.sqlite"; 
 
-  readonly BOOK_CURSOR="${BOOK_STATE}/cursor";
+  readonly BOOK_BASE_CURSOR="${BOOK_STATE}/base_cursor";
+  readonly BOOK_CONTEXT_CURSOR="${BOOK_STATE}/context_cursor"; # Renaming for clarity
 
   readonly BOOK_SHARE="${BOOK_DATA}"; # Renaming BOOK_DATA to BOOK_SHARE for clarity and XDG compliance
 
@@ -170,6 +168,10 @@ BOOK_PNS_ID=;
 BOOK_PNS_NAME=;
 BOOK_KVNS_ID=;
 BOOK_KVNS_NAME=;
+
+# --- New MDB Global State Variables ---
+# These will be set by the context resolution logic.
+THIS_BASE_NAME=;
 
 # Global for pub/unpub operations
 _PUB_KEY=;
@@ -254,7 +256,7 @@ is_file(){
 #   1: str (string) - The string to check.
 # Returns: 0 (true) if it is a chain, 1 (false) otherwise.
 is_chain(){
-  # THE FIX: A valid chain must start with @ or % AND contain a dot.
+  # A valid context chain must start with @ or % AND contain a dot.
   [[ ("$1" == \@* || "$1" == \%*) && "$1" == *.* ]];
   return $?;
 }
@@ -424,7 +426,6 @@ bootstrap(){
     ret=$?;
   else
     noimp "ignore missing rc file, BOOK_PROJECT_HOME will be undefined or default";
-    # This might be needed if BOOK_PROJECT_HOME is expected to be set by RC
     readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
   fi
   if is_dev; then
@@ -452,10 +453,60 @@ select_db(){
     THIS_DB="$other_db";
   elif [ ! -z "$TEST_MODE" ]; then
     [ "$TEST_MODE" -eq 0 ] && THIS_DB="$BOOK_TEST_DB";
+  else
+    # Read the active base name from BOOK_BASE_CURSOR
+    local base_name;
+    if [[ -f "${BOOK_BASE_CURSOR}" ]]; then
+      base_name=$(cat "${BOOK_BASE_CURSOR}");
+    fi
+    # If the file doesn't exist or is empty, default base_name to "main"
+    if __is_empty "${base_name}"; then
+      base_name="main";
+    fi
+    # Set the global THIS_BASE_NAME variable
+    THIS_BASE_NAME="${base_name}";
+    # Get the full path using __get_base_path
+    THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
   fi
 
   [ -z "$THIS_DB" ] && THIS_DB="$BOOK_DB";
   return 0;
+}
+
+################################################################################
+#
+#  is_super_context (New Guard Function)
+#
+################################################################################
+# Description: Checks if the target context is the indestructible GLOBAL.VAR.main.
+is_super_context(){
+    local pns_name="$1";
+    local kvns_name="$2";
+    if [[ "${pns_name}" == "GLOBAL" && "${kvns_name}" == "MAIN" ]]; then
+        return 0;
+    else
+        return 1;
+    fi
+}
+
+################################################################################
+#
+#  __ensure_default_keystore_exists (New Low-Ordinal Helper)
+#
+################################################################################
+# Description: Self-healing function to enforce the indestructible GLOBAL.VAR.main rule.
+__ensure_default_keystore_exists(){
+    local global_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';" | tr -d '\n');
+    if [[ -z "${global_pns_id}" ]]; then
+        __db_query "INSERT INTO project_ns (pns_name) VALUES ('GLOBAL');";
+        global_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';" | tr -d '\n');
+    fi
+
+    local main_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'MAIN' AND pns_id_fk = ${global_pns_id};" | tr -d '\n');
+    if [[ -z "${main_kvns_id}" ]]; then
+        __db_query "INSERT INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${global_pns_id});";
+    fi
+    return 0;
 }
 
 ################################################################################
@@ -542,8 +593,6 @@ __sed_in_place(){
 
   if ! mv "${tmp_file}" "${target_file}"; then
       error "Failed to move temp file to overwrite ${target_file}";
-      # The tmp_file is already gone if mv succeeded, or still exists if it failed.
-      # No need to rm -f "${tmp_file}" here again.
       return 1;
   fi
 
@@ -556,6 +605,7 @@ __sed_in_place(){
 #
 ################################################################################
 # Description: Validates if a string is a valid name for a key or namespace.
+#              (Rule: No dots allowed).
 # Arguments:
 #   1: name_to_check (string) - The name to validate.
 #   2: name_type (string) - A descriptive label for the name (e.g., "Key").
@@ -564,13 +614,99 @@ __sed_in_place(){
 __validate_name(){
   local name_to_check="$1";
   local name_type="$2"; # e.g., "Key", "Project Name"
-  # This regex allows alphanumeric characters, underscores, and hyphens.
-  # It explicitly forbids characters that could interfere with SQL syntax.
+
+  if [[ "${name_to_check}" =~ \. ]]; then
+    error "Invalid ${name_type}: '${name_to_check}'. Dots (.) are not allowed in names.";
+    return 1;
+  fi
+  
   if ! [[ "${name_to_check}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
     error "Invalid ${name_type}: '${name_to_check}'. Only alphanumeric characters, underscores (_), and hyphens (-) are allowed.";
     return 1;
   fi
+
   return 0;
+}
+
+################################################################################
+#
+#  __get_base_path (Low-Ordinal)
+#
+################################################################################
+# Description: Takes a base name and returns its full, absolute path.
+__get_base_path(){
+    local base_name="$1";
+    printf "%s" "${BOOK_DATA}/${base_name}.sqlite";
+    return 0;
+}
+
+################################################################################
+#
+#  _list_bases (Mid-Ordinal)
+#
+################################################################################
+# Description: Safely lists the names of all existing databases.
+# Risk R-01: Must use a safe globbing loop, not ls.
+_list_bases(){
+    for db_file in "${BOOK_DATA}"/*.sqlite; do
+      if [[ -f "$db_file" ]]; then # Check if glob found a file
+        basename "${db_file%.sqlite}";
+      fi
+    done
+    return 0;
+}
+
+################################################################################
+#
+#  _create_base (Mid-Ordinal)
+#
+################################################################################
+# Description: Creates and initializes a new database file.
+_create_base(){
+    local base_name="$1";
+    local base_path;
+    base_path=$(__get_base_path "$base_name");
+
+    if [[ -f "${base_path}" ]]; then
+        error "Database '${base_name}' already exists.";
+        return 1;
+    fi
+
+    if ! is_rw_filepath "${base_path}"; then
+        error "Cannot create database: '${base_path}' is not writable.";
+        return 1;
+    fi
+
+    touch "${base_path}" || fatal "Failed to create database file: ${base_path}";
+    
+    local original_this_db="${THIS_DB}";
+    THIS_DB="${base_path}";
+    __setup_sql; # Create schema in the new database
+    THIS_DB="${original_this_db}"; # Restore original THIS_DB
+    
+    okay "Database '${base_name}' created and initialized.";
+    return 0;
+}
+
+################################################################################
+#
+#  _remove_base (Mid-Ordinal)
+#
+################################################################################
+# Description: Deletes a database file. Contains no user-level safety.
+_remove_base(){
+    local base_name="$1";
+    local base_path;
+    base_path=$(__get_base_path "$base_name");
+
+    if [[ ! -f "${base_path}" ]]; then
+        error "Database '${base_name}' does not exist.";
+        return 1;
+    fi
+
+    rm -f "${base_path}" || error "Failed to remove database file: ${base_path}";
+    okay "Database '${base_name}' removed.";
+    return 0;
 }
 
 ################################################################################
@@ -579,11 +715,6 @@ __validate_name(){
 #
 ################################################################################
 # Description: Executes an SQLite query against the active database.
-# Arguments:
-#   1: query (string) - The SQL query to execute.
-#   @: additional_sqlite3_args (string) - Any arguments to pass directly to sqlite3.
-# Returns: Exit status of sqlite3. Prints query results to stdout.
-# Local Variables: ret, query, output, clean_output
 __db_query(){
   local ret=1;
   local query="$1";
@@ -599,22 +730,20 @@ __db_query(){
     return 1;
   fi
 
-  # Wrap the entire sqlite3 call in a subshell managed by flock.
   (
     flock -x 200 # Acquire an exclusive lock on file descriptor 200
-
     local output;
+    local sql_ret;
     output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2>&1);
-    ret=$?;
-
-    if [[ ${ret} -ne 0 ]]; then
-      printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;
-      printf "%b\n" "${red}SQLite Error: ${output}${xx}" >&2;
+    sql_ret=$?
+    if [[ ${sql_ret} -ne 0 ]]; then      
+      printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;      
+      printf "%b\n" "${red}SQLite Error: ${output}${xx}" >&2;    
     else
+      # Print output, stripping one trailing newline if it exists
       printf "%s" "${output%$'\n'}";
     fi
-    
-    exit ${ret};
+    exit ${sql_ret};
   ) 200>"${BOOK_LOCK}";
   
   return $?;
@@ -627,11 +756,6 @@ __db_query(){
 ################################################################################
 # Description: Writes the current Project and Key-Value Namespace names to the
 #              cursor file for persistence across sessions.
-# Arguments:
-#   1: pns_name (string) - The name of the Project Namespace.
-#   2: kvns_name (string) - The name of the Key-Value Namespace.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: pns_name, kvns_name
 __persist_cursor(){
   local pns_name="$1";
   local kvns_name="$2";
@@ -639,7 +763,7 @@ __persist_cursor(){
     error "Cannot persist invalid cursor (PNS: '${pns_name}', KVNS: '${kvns_name}').";
     return 1;
   fi
-  printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CURSOR}" || fatal "Failed to write cursor file: ${BOOK_CURSOR}";
+  printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CONTEXT_CURSOR}" || fatal "Failed to write context cursor file: ${BOOK_CONTEXT_CURSOR}";
   return 0;
 }
 
@@ -650,10 +774,7 @@ __persist_cursor(){
 ################################################################################
 # Description: Performs a daily automatic backup of the database if SAFE_MODE
 #              is enabled and no backup has been performed yet today.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: today, backup_dir, daily_backup_file
 __backup_db(){
-  # Skip if SAFE_MODE is off or if backup was already done in this script run
   if [[ "${SAFE_MODE}" -ne 0 || "${SAFE_BACKUP_PERFORMED}" -eq 0 ]]; then
     return 0;
   fi
@@ -662,15 +783,12 @@ __backup_db(){
     return 0;
   fi
 
-  local today;
-  today=$(date +%Y-%m-%d);
+  local today; today=$(date +%Y-%m-%d);
   local backup_dir="${BOOK_SHARE}/backups";
   local daily_backup_file="${backup_dir}/bookdb-auto-backup-${today}.tar.gz";
 
-  # First, mark as "handled" for this script run to prevent multiple triggers
   SAFE_BACKUP_PERFORMED=0;
 
-  # Then, check if a backup for today already exists
   if [[ -f "${daily_backup_file}" ]]; then
     log "SAFE_MODE: Daily auto-backup for ${today} already exists.";
     return 0;
@@ -678,7 +796,6 @@ __backup_db(){
   
   mkdir -p "${backup_dir}" || error "Could not create backup directory: ${backup_dir}.";
   log "SAFE_MODE: Performing daily auto-backup to ${daily_backup_file}";
-  # We only back up the database file for the automatic safety backup
   tar -czf "${daily_backup_file}" -C "$(dirname "${THIS_DB}")" "$(basename "${THIS_DB}")";
   
   if [[ $? -ne 0 ]]; then
@@ -694,10 +811,6 @@ __backup_db(){
 #
 ################################################################################
 # Description: Prompts the user for confirmation before proceeding with an action.
-# Arguments:
-#   1: prompt_msg (string) - The message to display to the user.
-# Returns: 0 (yes) or 1 (no).
-# Local Variables: prompt_msg, confirm
 __confirm_action(){
   local prompt_msg="$1";
   if is_dev; then
@@ -709,7 +822,7 @@ __confirm_action(){
   fi
   local confirm;
   printf "${yellow}%s${xx} [y/N]: " "${prompt_msg}" >&2;
-  read -r confirm; # Use -r to prevent backslash interpretation
+  read -r confirm;
   if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
     return 0;
   else
@@ -722,92 +835,90 @@ __confirm_action(){
 #  __resolve_context
 #
 ################################################################################
-# Description: Resolves the active Project and Key-Value Namespaces based on
-#              command-line flags, context chain, or persisted cursor file.
-# Sets Globals: BOOK_PNS_ID, BOOK_PNS_NAME, BOOK_KVNS_ID, BOOK_KVNS_NAME
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, T_pns_name, T_kvns_name, persist_needed, clean_chain,
-#                  context_type, pns_name_sql, kvns_name_sql, T_pns_id, T_kvns_id
-
-__correct_context(){
-  local def_pns_name="GLOBAL";
-  local def_kvns_name="MAIN";
-  #__persist_cursor;
-}
-
+# Description: Resolves the active context based on command-line overrides or
+#              persisted cursors, enforcing Context Atomicity.
 __resolve_context(){
   trace "Attempting to resolve context...";
   local ret=1;
+  local T_base_name=;
   local T_pns_name=;
   local T_kvns_name=;
-  local persist_needed=0;
-  local old_opt_chain="${opt_context_chain}"; # Save original opt_context_chain
+  local persist_base_needed=0;
+  local persist_context_needed=0;
+  
+  # 1. Handle base override from `options()`
+  if [[ -n "${opt_base_override}" ]]; then
+      T_base_name="${opt_base_override}";
+      if [[ "${opt_chain_mode}" == "@" ]]; then
+        persist_base_needed=1;
+        persist_context_needed=1; # Persist both if base is being changed with @
+      fi
 
+      # Validate that base_name exists
+      local found_base=0;
+      for base in $(_list_bases); do
+        [[ "${base}" == "${T_base_name}" ]] && { found_base=1; break; }
+      done
+      if [[ "${found_base}" -eq 0 ]]; then
+        error "Base '${T_base_name}' not found.";
+        return 1;
+      fi
+      # Set THIS_DB and THIS_BASE_NAME for this command
+      THIS_BASE_NAME="${T_base_name}";
+      THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
+  else
+      # If no base override, rely on the active base already set by select_db()
+      T_base_name="${THIS_BASE_NAME}";
+  fi
+
+  # 2. Handle context chain from `options()` or --flags
   if [[ -n "${opt_context_chain}" ]]; then
-    persist_needed=1;
-    local clean_chain="${opt_context_chain#*@}";
-    clean_chain="${clean_chain#*%}"; # Handles both @ and %
-    T_pns_name=$(echo "${clean_chain}" | cut -d'.' -f1);
-    T_kvns_name=$(echo "${clean_chain}" | cut -d'.' -f3);
-    local context_type=$(echo "${clean_chain}" | cut -d'.' -f2);
-    if [[ "${context_type}" != "VAR" ]]; then
-      error "Invalid context chain: middle part must be 'VAR' (e.g., @myproj.VAR.config).";
-      return 1;
+    local chain_parts=($(echo "${opt_context_chain}" | cut -d'.' -f1,3 --output-delimiter=' '));
+    T_pns_name="${chain_parts[0]}";
+    T_kvns_name="${chain_parts[1]}";
+    if [[ -z "${chain_parts[1]}" ]]; then # Handle case like `base@project` -> reset to main
+        T_kvns_name="MAIN";
     fi
-  fi
-
-  if [[ -n "${opt_projdb}" ]]; then
-    persist_needed=1;
+  elif [[ -n "${opt_projdb}" ]]; then # Handle --projdb flag
+    persist_context_needed=1;
     T_pns_name="${opt_projdb}";
-  fi
-  if [[ -n "${opt_keydb}" ]]; then
-    persist_needed=1;
+    T_kvns_name="MAIN"; # Context Atomicity: reset keystore to main
+  elif [[ -n "${opt_keydb}" && -z "${opt_projdb}" ]]; then # Handle --keydb flag without --projdb
+    persist_context_needed=1;
+    T_pns_name="${BOOK_PNS_NAME}"; # Use current project
     T_kvns_name="${opt_keydb}";
   fi
-
-  # If no context was provided via flags or chain, try cursor file or defaults
-  if [[ -z "${T_pns_name}" && -z "${T_kvns_name}" ]]; then
-    if [[ -f "${BOOK_CURSOR}" ]]; then
-      T_pns_name=$(sed -n '1p' "${BOOK_CURSOR}");
-      T_kvns_name=$(sed -n '2p' "${BOOK_CURSOR}");
-    else
+  
+  # 3. If no context specified via flags/chain, use persisted cursor
+  if __is_empty "${T_pns_name}" && __is_empty "${T_kvns_name}"; then
+    if [[ -f "${BOOK_CONTEXT_CURSOR}" ]]; then
+      T_pns_name=$(sed -n '1p' "${BOOK_CONTEXT_CURSOR}");
+      T_kvns_name=$(sed -n '2p' "${BOOK_CONTEXT_CURSOR}");
+    else # Default to GLOBAL.MAIN if all else fails
       T_pns_name="GLOBAL";
       T_kvns_name="MAIN";
     fi
   fi
 
+  trace "Context proposal: Base: '${T_base_name}' PNS: '${T_pns_name}' KVNS: '${T_kvns_name}'";
 
-  
-  trace "Context proposal: PNS: '${T_pns_name}' KVNS: '${T_kvns_name}'";
-
-  # Ensure names are not empty after all attempts
+  # 4. Validate and commit context
   if __is_empty "${T_pns_name}" || __is_empty "${T_kvns_name}"; then
     error "Failed to resolve a valid Project or Key-Value Namespace.";
     return 1;
   fi
-
+  
   local pns_name_sql="${T_pns_name//\'/\'\'}";
   local kvns_name_sql="${T_kvns_name//\'/\'\'}";
-  local T_pns_id;
-
-  # Query for PNS ID
-  T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';" | tr -d '\n');
+  
+  local T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';" | tr -d '\n');
   if [[ -z "${T_pns_id}" ]]; then
-
-    # todo reset to default chain context 
-
     error "Project Namespace not found: '${T_pns_name}'.";
     return 1;
   fi
 
-  local T_kvns_id;
-  # Query for KVNS ID within the resolved PNS
-  T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};" | tr -d '\n');
+  local T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};" | tr -d '\n');
   if [[ -z "${T_kvns_id}" ]]; then
-
-    # todo reset to default chain context 
-    
-
     error "Key-Value Namespace not found: '${T_kvns_name}' in project '${T_pns_name}'.";
     return 1;
   fi
@@ -818,69 +929,49 @@ __resolve_context(){
   BOOK_KVNS_ID="${T_kvns_id}";
   BOOK_KVNS_NAME="${T_kvns_name}";
   
-  if [[ ${persist_needed} -eq 1 ]]; then
+  if [[ ${persist_context_needed} -eq 1 ]]; then
     log "Persisting new context to cursor: '${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}'";
     __persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
   fi
 
-  trace "Context resolved: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-  opt_context_chain="${old_opt_chain}"; # Restore original opt_context_chain
+  if [[ ${persist_base_needed} -eq 1 ]]; then
+    log "Persisting new base to cursor: '${THIS_BASE_NAME}'";
+    printf "%s" "${THIS_BASE_NAME}" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write base cursor file: ${BOOK_BASE_CURSOR}";
+  fi
+
+  trace "Context resolved: ${THIS_BASE_NAME}@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
   return 0;
 }
+
 ################################################################################
 #
 #  __write_keystore_to_file
 #
 ################################################################################
-# Description: Generates and writes configuration content to a specified file,
-#              with values correctly quoted.
-# Arguments:
-#   1: pns_name (string) - Project Namespace name.
-#   2: kvns_name (string) - Key-Value Namespace name.
-#   3: target_file (string) - Path to write the config file.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: pns_name, kvns_name, target_file, pns_id, kvns_id,
-#                  header_content, sql, results, key, value
+# Description: Generates and writes configuration content to a specified file.
 __write_keystore_to_file(){
-  local pns_name="$1";
-  local kvns_name="$2";
-  local target_file="$3";
+  local pns_name="$1"; local kvns_name="$2"; local target_file="$3";
 
-  # Find the ID for the given context
-  local pns_id;
-  pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name//\'/\'\'}';" );
-  local kvns_id;
-  kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name//\'/\'\'}' AND pns_id_fk = ${pns_id};" );
+  local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name//\'/\'\'}';" );
+  local kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name//\'/\'\'}' AND pns_id_fk = ${pns_id};" );
 
   if [[ -z "${kvns_id}" ]]; then
     error "Internal error: Could not find ID for ${pns_name}/${kvns_name}.";
     return 1;
   fi
 
-  # Build and write the header
   local header_content;
   printf -v header_content "# bookdb export for keystore: %s in project: %s\n_BOOKDB_CHAIN_=@%s.VAR.%s\n_BOOKDB_WRITEMODE_=overwrite\n\n" \
     "${kvns_name}" "${pns_name}" "${pns_name}" "${kvns_name}";
   printf "%s" "${header_content}" > "${target_file}";
-  if [[ $? -ne 0 ]]; then
-    error "Failed to write header to file: ${target_file}";
-    return 1;
-  fi
+  if [[ $? -ne 0 ]]; then error "Failed to write header to file: ${target_file}"; return 1; fi
 
-  # THE FIX: Retrieve data with a safe separator, then loop and format with quotes.
   local sql="SELECT var_key, var_value FROM vars WHERE kvns_id_fk = ${kvns_id} ORDER BY var_key;";
-  # Use a pipe separator which is less likely to be in a key/value
-  local results;
-  results=$(__db_query "${sql}" "-separator" "|");
-  if [[ $? -ne 0 ]]; then
-    error "Failed to retrieve variables for export.";
-    return 1;
-  fi
+  local results=$(__db_query "${sql}" "-separator" "|");
+  if [[ $? -ne 0 ]]; then error "Failed to retrieve variables for export."; return 1; fi
   
-  # Process and append each line with correct formatting
   if [[ -n "${results}" ]]; then
     echo "${results}" | while IFS="|" read -r key value; do
-      # Format each line as KEY="VALUE" and append it
       printf '%s="%s"\n' "${key}" "${value}" >> "${target_file}";
     done
   fi
@@ -894,11 +985,10 @@ __write_keystore_to_file(){
 #
 ################################################################################
 # Description: Attempts to find the user's primary shell profile file.
-# Returns: Path to the profile file on stdout, 1 on failure.
 __find_shell_profile(){
   if is_file "$HOME/.bashrc"; then
     printf "%s" "$HOME/.bashrc";
-  elif is_file "$HOME/.zshrc"; then # Check zshrc second as bash is preferred
+  elif is_file "$HOME/.zshrc"; then
     printf "%s" "$HOME/.zshrc";
   elif is_file "$HOME/.profile"; then
     printf "%s" "$HOME/.profile";
@@ -914,14 +1004,9 @@ __find_shell_profile(){
 #
 ################################################################################
 # Description: Adds a source line for the bookdb RC file to the user's shell profile.
-# Arguments:
-#   1: profile_file (string) - Path to the shell profile file.
-#   2: link_line_content (string) - The content of the line to add/check.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: profile_file, link_line_content, ret
 __link_to_profile(){
   local profile_file="$1";
-  local link_line_content="$2"; # E.g., "source '${BOOK_RC}' # bookdb configuration"
+  local link_line_content="$2";
   local ret=1;
 
   if [[ ! -f "${profile_file}" ]]; then
@@ -929,7 +1014,6 @@ __link_to_profile(){
     return 1;
   fi
 
-  # Check if the link already exists by looking for the full line content
   if grep -qF -- "${link_line_content}" "${profile_file}" 2>/dev/null; then
     log "Profile '${profile_file}' is already linked to bookdb.";
     return 0;
@@ -950,13 +1034,9 @@ __link_to_profile(){
 #
 ################################################################################
 # Description: Removes the bookdb source line from the user's shell profile.
-# Arguments:
-#   1: profile_file (string) - Path to the shell profile file.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: profile_file, sentinel_comment, sed_script, ret
 __unlink_from_profile(){
   local profile_file="$1";
-  local sentinel_comment="# bookdb configuration"; # This is what we look for to remove the line
+  local sentinel_comment="# bookdb configuration";
   local ret=0;
 
   if [[ ! -f "${profile_file}" ]]; then
@@ -964,7 +1044,6 @@ __unlink_from_profile(){
     return 0;
   fi
 
-  # If our unique comment exists, remove the line using our new helper.
   if grep -qF -- "${sentinel_comment}" "${profile_file}" 2>/dev/null; then
       log "Removing bookdb configuration from '${profile_file}'...";
       local sed_script="/${sentinel_comment}/d";
@@ -982,33 +1061,17 @@ __unlink_from_profile(){
 #  __print_keystore_contents
 #
 ################################################################################
-# Description: Queries and prints all key-value pairs for a given keystore
-#              to stderr (for human readability).
-# Arguments:
-#   1: pns_name (string) - Project Namespace name.
-#   2: kvns_name (string) - Key-Value Namespace name.
-# Returns: 0 on success.
-# Local Variables: pns_name, kvns_name, pns_name_sql, kvns_name_sql, sql, results, key, value
+# Description: Queries and prints all key-value pairs for a given keystore.
 __print_keystore_contents(){
-  local pns_name="$1";
-  local kvns_name="$2";
-
-  # Sanitize names for the SQL query
+  local pns_name="$1"; local kvns_name="$2";
   local pns_name_sql="${pns_name//\'/\'\'}";
   local kvns_name_sql="${kvns_name//\'/\'\'}";
-
-  # This query joins all three tables to get the variables by name.
   local sql="SELECT v.var_key, v.var_value FROM vars v JOIN keyval_ns k ON v.kvns_id_fk = k.kvns_id JOIN project_ns p ON k.pns_id_fk = p.pns_id WHERE p.pns_name = '${pns_name_sql}' AND k.kvns_name = '${kvns_name_sql}' ORDER BY v.var_key;";
-  
-  # Use a pipe separator for robust parsing
-  local results;
-  results=$(__db_query "${sql}" "-separator" "|");
+  local results=$(__db_query "${sql}" "-separator" "|");
 
   if [[ -z "${results}" ]]; then
       printf "      (empty)\n" >&2;
   else
-      # Use 'while read' to safely handle values that might contain spaces
-      # Output to stderr as this is for human readability
       echo "${results}" | while IFS="|" read -r key value; do
           printf "    - %s = %s\n" "${key}" "${value}" >&2;
       done
@@ -1022,26 +1085,14 @@ __print_keystore_contents(){
 #
 ################################################################################
 # Description: Lists all projects, keystores, and their key-value pairs.
-# Returns: 0 on success.
-# Local Variables: projects, project, pns_id, keystores, keystore
 do_ls_all(){
-    local projects;
-    projects=$(__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;");
-    
-    if [[ -z "${projects}" ]]; then
-        log "No projects found.";
-        return 0;
-    fi
+    local projects=$(__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;");
+    if [[ -z "${projects}" ]]; then log "No projects found."; return 0; fi
 
     echo "${projects}" | while read -r project; do
         printf "\n${blue}[+] Project: %s${xx}\n" "${project}" >&2;
-        
-        local pns_id;
-        pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${project//\'/\'\'}';" | tr -d '\n');
-        
-        local keystores;
-        keystores=$(__db_query "SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${pns_id} ORDER BY kvns_name;");
-
+        local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${project//\'/\'\'}';" | tr -d '\n');
+        local keystores=$(__db_query "SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${pns_id} ORDER BY kvns_name;");
         if [[ -z "${keystores}" ]]; then
             printf "  (No keystores found)\n" >&2;
         else
@@ -1051,7 +1102,6 @@ do_ls_all(){
             done
         fi
     done
-
     return 0;
 }
 
@@ -1061,20 +1111,14 @@ do_ls_all(){
 #
 ################################################################################
 # Description: Retrieves and prints the value of a variable to stdout.
-# Arguments:
-#   1: key (string) - The key of the variable to retrieve.
-# Returns: 0 on success (if key found), 1 otherwise.
-# Local Variables: ret, key, key_sql, sql
 do_getv(){
-  local ret=1;
   local key="$1";
   if __is_empty "${key}"; then error "Usage: bookdb getv <KEY>"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
   local key_sql="${key//\'/\'\'}";
   local sql="SELECT var_value FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};";
-  __db_query "${sql}"; # Output goes to stdout
-  ret=$?;
-  return "${ret}";
+  __db_query "${sql}";
+  return $?;
 }
 
 ################################################################################
@@ -1083,39 +1127,25 @@ do_getv(){
 #
 ################################################################################
 # Description: Creates or updates a variable in the active context.
-# Arguments:
-#   1: arg (string) - The key-value pair in "KEY=VALUE" format.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, arg, key, val, key_sql, val_sql, ts, var_id, sql_insert, sql_update
 do_setv(){
-  local ret=1;
   local arg="$1";
-  local key="${arg%%=*}";
-  local val="${arg#*=}";
-  if __is_empty "$key" || [[ "$arg" == "$key" ]]; then
-    error "Usage: bookdb setv <KEY=VALUE>";
-    return 1;
-  fi
+  local key="${arg%%=*}"; local val="${arg#*=}";
+  if __is_empty "$key" || [[ "$arg" == "$key" ]]; then error "Usage: bookdb setv <KEY=VALUE>"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
-  local key_sql="${key//\'/\'\'}";
-  local val_sql="${val//\'/\'\'}";
-  local ts;
-  ts=$(date +%s);
-  local var_id;
-  var_id=$(__db_query "SELECT var_id FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};" | tr -d '\n');
+  local key_sql="${key//\'/\'\'}"; local val_sql="${val//\'/\'\'}";
+  local ts=$(date +%s);
+  local var_id=$(__db_query "SELECT var_id FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};" | tr -d '\n');
   
   if __is_empty "${var_id}"; then
     log "Creating new variable: '${key}' in @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
     local sql_insert="INSERT INTO vars (var_key, var_value, var_updated, kvns_id_fk) VALUES ('${key_sql}', '${val_sql}', ${ts}, ${BOOK_KVNS_ID});";
     __db_query "${sql_insert}";
-    ret=$?;
   else
     log "Updating existing variable: '${key}' in @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
     local sql_update="UPDATE vars SET var_value = '${val_sql}', var_updated = ${ts} WHERE var_id = ${var_id};";
     __db_query "${sql_update}";
-    ret=$?;
   fi
-  return "${ret}";
+  return $?;
 }
 
 ################################################################################
@@ -1124,33 +1154,18 @@ do_setv(){
 #
 ################################################################################
 # Description: Deletes a variable from the active context after confirmation.
-# Arguments:
-#   1: key (string) - The key of the variable to delete.
-# Returns: 0 on success, 1 on cancellation or failure.
-# Local Variables: ret, key, key_sql
 do_delv(){
-  local ret=1;
   local key="$1";
-  if __is_empty "${key}"; then
-    error "Usage: bookdb delv <KEY>";
-    return 1;
-  fi
+  if __is_empty "${key}"; then error "Usage: bookdb delv <KEY>"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
   if __confirm_action "Delete variable '${key}' from context '@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}'?"; then
     local key_sql="${key//\'/\'\'}";
-    __backup_db || return 1; # Backup before destructive action
+    __backup_db || return 1;
     __db_query "DELETE FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};";
-    ret=$?;
-    if [[ "${ret}" -eq 0 ]]; then
-      okay "Deleted variable: ${key}";
-    else
-      error "Failed to delete variable: ${key}";
-    fi
-  else
-    log "Deletion cancelled.";
-    ret=1;
+    if [[ $? -eq 0 ]]; then okay "Deleted variable: ${key}"; return 0; fi
   fi
-  return "${ret}";
+  log "Deletion cancelled or failed.";
+  return 1;
 }
 
 ################################################################################
@@ -1159,44 +1174,24 @@ do_delv(){
 #
 ################################################################################
 # Description: Finds keys across all projects/keystores matching a pattern.
-# Arguments:
-#   1: key_pattern (string) - The pattern to search for (supports SQL LIKE wildcards).
-# Returns: 0 if keys are found, 1 otherwise.
-# Local Variables: ret, key_pattern, key_sql, sql, results, pns, kvns, key
 do_find(){
-  local ret=1;
   local key_pattern="$1";
-  if __is_empty "${key_pattern}"; then
-    error "Usage: bookdb find <KEY_PATTERN>";
-    return 1;
-  fi
-
-  # Allow for wildcard searching by default if user doesn't provide them.
-  if [[ "$key_pattern" != *"%"* ]]; then
-    key_pattern="%${key_pattern}%";
-  fi
-
+  if __is_empty "${key_pattern}"; then error "Usage: bookdb find <KEY_PATTERN>"; return 1; fi
+  [[ "$key_pattern" != *"%"* ]] && key_pattern="%${key_pattern}%";
   local key_sql="${key_pattern//\'/\'\'}";
-  
-  # This query joins all three tables to build the full context for each found key.
   local sql="SELECT p.pns_name, k.kvns_name, v.var_key FROM vars v JOIN keyval_ns k ON v.kvns_id_fk = k.kvns_id JOIN project_ns p ON k.pns_id_fk = p.pns_id WHERE v.var_key LIKE '${key_sql}' ORDER BY p.pns_name, k.kvns_name, v.var_key;";
-
-  local results;
-  results=$(__db_query "${sql}" "-csv");
+  local results=$(__db_query "${sql}" "-csv");
 
   if __is_empty "${results}"; then
     log "No keys found matching pattern: '${key_pattern}'.";
     return 1;
   else
-    # THE FIX: Use the info() wrapper for all output
     info "Found matching keys in the following contexts:";
     echo "${results}" | while IFS=, read -r pns kvns key; do
       info "  @%s.VAR.%s -> %s" "${pns}" "${kvns}" "${key}";
     done
-    ret=0;
+    return 0;
   fi
-  
-  return "${ret}";
 }
 
 ################################################################################
@@ -1204,43 +1199,114 @@ do_find(){
 #  do_ls
 #
 ################################################################################
-# Description: Lists various database entities (all, projects, keyval namespaces, keys).
-# Arguments:
-#   1: what (string) - What to list ("all", "project", "vars", "keys").
-# Returns: 0 on success, 1 on invalid argument.
-# Local Variables: ret, what, sql
+# Description: Lists various database entities.
 do_ls(){
-  local ret=1;
-  local what="$1";
+  local what="${1:-keys}"; # Default to listing keys
   case "${what}" in
-    (all)
-      do_ls_all;
-      ret=$?;
+    (all) do_ls_all; ret=$?; ;;
+    (bases)
+      local all_bases=$(_list_bases);
+      if __is_empty "${all_bases}"; then
+          info "No bases found.";
+      else
+          info "Available Bases:";
+          echo "${all_bases}" | while read -r base_name; do
+              [[ "${base_name}" == "${THIS_BASE_NAME}" ]] && printf "* " || printf "  ";
+              info "%s" "${base_name}";
+          done
+      fi
+      ret=0;
       ;;
     (project)
-      __db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;";
-      ret=$?;
-      ;;
+      __db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;"; ret=$?; ;;
     (vars)
       local sql="SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${BOOK_PNS_ID} ORDER BY kvns_name;";
-      __db_query "${sql}";
-      ret=$?;
-      ;;
+      __db_query "${sql}"; ret=$?; ;;
     (keys)
-      # This provides the old default behavior of listing keys in the current context
       trace "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
       local sql="SELECT var_key FROM vars WHERE kvns_id_fk = ${BOOK_KVNS_ID} ORDER BY var_key;";
-      __db_query "${sql}";
-      ret=$?;
-      ;;
+      __db_query "${sql}"; ret=$?; ;;
     (*)
-      error "Invalid argument for 'ls'. Use 'all', 'project', 'vars', or 'keys'.";
+      error "Invalid argument for 'ls'. Use 'all', 'bases', 'project', 'vars', or 'keys'.";
       return 1;
       ;;
   esac
-  return "${ret}";
+  return $?;
 }
 
+################################################################################
+#
+#  do_select_base (New High-Ordinal)
+#
+################################################################################
+# Description: Updates the base_cursor file to change the persistent active base.
+do_select_base(){
+    local base_name="$1";
+    if __is_empty "${base_name}"; then error "Usage: bookdb select <base_name>"; return 1; fi
+    __validate_name "${base_name}" "Base Name" || return 1;
+    local found_base=0;
+    for base in $(_list_bases); do
+        [[ "${base}" == "${base_name}" ]] && { found_base=1; break; }
+    done
+    if [[ "${found_base}" -eq 0 ]]; then error "Base '${base_name}' not found."; return 1; fi
+
+    printf "%s" "${base_name}" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write base cursor file: ${BOOK_BASE_CURSOR}";
+    okay "Active base changed to '${base_name}'.";
+    return 0;
+}
+
+################################################################################
+#
+#  do_current_base (New High-Ordinal)
+#
+################################################################################
+# Description: Prints the active base name.
+do_current_base(){
+    info "Active Base: %s" "${THIS_BASE_NAME}";
+    return 0;
+}
+
+################################################################################
+#
+#  do_rebase (New High-Ordinal)
+#
+################################################################################
+# Description: Deletes and recreates a base in a pristine state.
+do_rebase(){
+    local base_name="$1";
+    if __is_empty "${base_name}"; then error "Usage: bookdb rebase <base_name>"; return 1; fi
+    __validate_name "${base_name}" "Base Name" || return 1;
+    if __confirm_action "Rebase will delete and recreate base '${base_name}'. All data will be lost. Continue?"; then
+        _remove_base "${base_name}" || return 1;
+        _create_base "${base_name}" || return 1;
+        okay "Base '${base_name}' rebased.";
+        return 0;
+    fi
+    log "Rebase cancelled.";
+    return 1;
+}
+
+################################################################################
+#
+#  do_unbase (New High-Ordinal)
+#
+################################################################################
+# Description: Deletes the specified .sqlite file.
+do_unbase(){
+    local base_name="$1";
+    if __is_empty "${base_name}"; then error "Usage: bookdb unbase <base_name>"; return 1; fi
+    __validate_name "${base_name}" "Base Name" || return 1;
+    if [[ "${base_name}" == "main" ]]; then
+        error "Cannot delete the default 'main' base. Use 'rebase' to reset it.";
+        return 1;
+    fi
+    if __confirm_action "Delete base '${base_name}' and ALL its contents? This is irreversible."; then
+        _remove_base "${base_name}" || return 1;
+        return 0;
+    fi
+    log "Unbase cancelled.";
+    return 1;
+}
 
 ################################################################################
 #
@@ -1248,34 +1314,21 @@ do_ls(){
 #
 ################################################################################
 # Description: Internal helper to create a project and its default MAIN keystore.
-#              This is the single source of truth for project creation.
-# Arguments:
-#   1: pns_name (string) - The name of the project to create.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: pns_name, name_sql, new_pns_id
 ___new_project(){
   local pns_name="$1";
   if __is_empty "${pns_name}"; then return 1; fi
-
   local name_sql="${pns_name//\'/\'\'}";
-  
   __db_query "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('${name_sql}');";
   if [[ $? -eq 0 ]]; then
     okay "Project '${pns_name}' created or already exists.";
-    local new_pns_id;
-    new_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${name_sql}';" );
-    if __is_empty "${new_pns_id}"; then
-      error "Failed to retrieve ID for new project '${pns_name}'.";
-      return 1;
-    fi
-    
+    local new_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${name_sql}';" );
+    if __is_empty "${new_pns_id}"; then error "Failed to retrieve ID for new project '${pns_name}'."; return 1; fi
     __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${new_pns_id});";
     log "Default key-value store 'MAIN' created/verified for project '${pns_name}'.";
     return 0;
-  else
-    error "Failed to create project '${pns_name}'.";
-    return 1;
   fi
+  error "Failed to create project '${pns_name}'.";
+  return 1;
 }
 
 ################################################################################
@@ -1284,48 +1337,45 @@ ___new_project(){
 #
 ################################################################################
 # Description: Creates a new project or key-value namespace.
-# Arguments:
-#   1: what (string) - "project" or "keyval".
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, what, ns_name
-do_new(){
-  local ret=1;
-  # THE FIX: Read from positional arguments ($1), not the ARGS array.
-  local what="$1";
-  local ns_name="${opt_ns}";
-  
-  if __is_empty "${what}" || __is_empty "${ns_name}"; then
-    error "Usage: bookdb new <project|keyval> --ns <name>";
-    return 1;
-  fi
-  __validate_name "${ns_name}" "Namespace" || return 1;
-
-  case "${what}" in
-    (project)
-      __backup_db || return 1;
-      ___new_project "${ns_name}"; # Use the helper
-      ret=$?;
-      ;;
-    (keyval)
-      __backup_db || return 1;
-      local name_sql="${ns_name//\'/\'\'}";
-      __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('${name_sql}', ${BOOK_PNS_ID});";
-      if [[ $? -eq 0 ]]; then
-        okay "Key-value store '${ns_name}' created in project '${BOOK_PNS_NAME}'.";
-        ret=0;
-      else
-        error "Failed to create key-value store '${ns_name}'. It may already exist in this project.";
-        ret=1;
-      fi
-      ;;
-    (*)
-      error "Invalid argument for 'new'. Use 'project' or 'keyval'.";
-      ret=1;
-      ;;
-  esac
-  return "${ret}";
+function do_new(){
+    local what="$1"; shift;
+    case "$what" in
+        (base) _do_new_base "$@"; ;;
+        (project) _do_new_project "$@"; ;;
+        (keyval) _do_new_keyval "$@"; ;;
+        (*) error "Usage: bookdb new <base|project|keyval> <name>"; return 1; ;;
+    esac
 }
-
+function _do_new_base(){
+    local base_name="$1";
+    if __is_empty "${base_name}"; then error "Usage: bookdb new base <name>"; return 1; fi
+    __validate_name "${base_name}" "Base Name" || return 1;
+    __backup_db || return 1;
+    _create_base "${base_name}";
+    return $?;
+}
+function _do_new_project(){
+    local pns_name="$1";
+    if __is_empty "${pns_name}"; then error "Usage: bookdb new project <name>"; return 1; fi
+    __validate_name "${pns_name}" "Project Name" || return 1;
+    __backup_db || return 1;
+    ___new_project "${pns_name}";
+    return $?;
+}
+function _do_new_keyval(){
+    local kvns_name="$1";
+    if __is_empty "${kvns_name}"; then error "Usage: bookdb new keyval <name>"; return 1; fi
+    __validate_name "${kvns_name}" "Key-Value Namespace Name" || return 1;
+    __backup_db || return 1;
+    local name_sql="${kvns_name//\'/\'\'}";
+    __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('${name_sql}', ${BOOK_PNS_ID});";
+    if [[ $? -eq 0 ]]; then
+        okay "Key-value store '${kvns_name}' created in project '${BOOK_PNS_NAME}'.";
+        return 0;
+    fi
+    error "Failed to create key-value store '${kvns_name}'.";
+    return 1;
+}
 
 ################################################################################
 #
@@ -1333,19 +1383,9 @@ do_new(){
 #
 ################################################################################
 # Description: Deletes a project or key-value namespace after confirmation.
-# Arguments:
-#   1: what (string) - Type of entity to delete ("project" or "keyval").
-#   2: ns_name (string, from opt_ns) - The name of the namespace to delete.
-# Returns: 0 on success, 1 on cancellation or failure.
-# Local Variables: ret, what, ns_name, name_sql
 do_del(){
-  local ret=1;
-  local what="$1";
-  local ns_name="${opt_ns}";
-  if __is_empty "${what}" || __is_empty "${ns_name}"; then
-    error "Usage: bookdb del <project|keyval> --ns <name>";
-    return 1;
-  fi
+  local what="$1"; local ns_name="$2";
+  if __is_empty "${what}" || __is_empty "${ns_name}"; then error "Usage: bookdb del <project|keyval> <name>"; return 1; fi
   __validate_name "${ns_name}" "Namespace" || return 1;
   local name_sql="${ns_name//\'/\'\'}";
   case "${what}" in
@@ -1353,38 +1393,20 @@ do_del(){
       if __confirm_action "Delete project '${ns_name}' and ALL its contents? This is irreversible."; then
         __backup_db || return 1;
         __db_query "DELETE FROM project_ns WHERE pns_name = '${name_sql}';";
-        ret=$?;
-        if [[ "${ret}" -eq 0 ]]; then
-          okay "Project '${ns_name}' deleted.";
-        else
-          error "Failed to delete project '${ns_name}'.";
-        fi
-      else
-        log "Deletion cancelled.";
-        ret=1;
-      fi
-      ;;
+        okay "Project '${ns_name}' deleted.";
+        return 0;
+      fi ;;
     (keyval)
-      if __confirm_action "Delete key-value store '${ns_name}' in project '${BOOK_PNS_NAME}' and ALL its variables? This is irreversible."; then
+      if __confirm_action "Delete key-value store '${ns_name}' in project '${BOOK_PNS_NAME}' and ALL its variables?"; then
         __backup_db || return 1;
         __db_query "DELETE FROM keyval_ns WHERE kvns_name = '${name_sql}' AND pns_id_fk = ${BOOK_PNS_ID};";
-        ret=$?;
-        if [[ "${ret}" -eq 0 ]]; then
-          okay "Key-value store '${ns_name}' deleted.";
-        else
-          error "Failed to delete key-value store '${ns_name}'.";
-        fi
-      else
-        log "Deletion cancelled.";
-        ret=1;
-      fi
-      ;;
-    (*)
-      error "Invalid argument for 'del'. Use 'project' or 'keyval'.";
-      ret=1;
-      ;;
+        okay "Key-value store '${ns_name}' deleted.";
+        return 0;
+      fi ;;
+    (*) error "Invalid argument for 'del'. Use 'project' or 'keyval'."; return 1; ;;
   esac
-  return "${ret}";
+  log "Deletion cancelled or failed.";
+  return 1;
 }
 
 ################################################################################
@@ -1393,22 +1415,20 @@ do_del(){
 #
 ################################################################################
 # Description: Creates a full, manual backup of the bookdb installation structure.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: backup_path
 do_backup(){
   local backup_path="${HOME}/bookdb_backup_$(date +%Y%m%d_%H%M%S).tar.gz";
-
-  info "Creating manual, full backup at: %s" "${backup_path}"; # Use info()
+  info "Creating manual, full backup at: %s" "${backup_path}";
   
-  tar -czf "${backup_path}" -C "${_XDG_HOME}" "share/${_XDG_PREF}" "etc/${_XDG_PREF}" "state/${_XDG_PREF}";
-  
-  if [[ $? -eq 0 ]]; then
-      okay "Backup successful.";
-      return 0;
+  if [[ -n "${opt_all}" ]]; then
+    log "Backing up all bases and configurations...";
+    tar -czf "${backup_path}" -C "${_XDG_HOME}" "share/${_XDG_PREF}" "etc/${_XDG_PREF}" "state/${_XDG_PREF}" || fatal "Failed to create full backup.";
   else
-      error "Backup failed.";
-      return 1;
+    log "Backing up current base only...";
+    tar -czf "${backup_path}" -C "$(dirname "${THIS_DB}")" "$(basename "${THIS_DB}")" || fatal "Failed to create current base backup.";
   fi
+
+  okay "Backup successful.";
+  return 0;
 }
 
 ################################################################################
@@ -1417,10 +1437,8 @@ do_backup(){
 #
 ################################################################################
 # Description: Prints the current active cursor chain to stderr.
-# Returns: 0.
 do_cursor(){ 
-  # THE FIX: Use the `info` wrapper to respect --printer stdoutt
-  info "Active Cursor: @%s.VAR.%s" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
+  info "Active Cursor: %s@%s.VAR.%s" "${THIS_BASE_NAME}" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
   return 0; 
 }
 
@@ -1429,74 +1447,49 @@ do_cursor(){
 #  do_status
 #
 ################################################################################
-# Description: Displays a dashboard with core file paths, the current cursor,
-#              and a list of available Project Namespaces.
-# Returns: 0.
-# Local Variables: projects
+# Description: Displays a dashboard with core file paths and system state.
 do_status(){
-  # THE FIX: Replace all `printf ... >&2` with `info()`
   info "### BookDB Status ###";
-  info "  Database File: ${THIS_DB}" "${THIS_DB}";
-  info "  Cursor File:   %s" "${BOOK_CURSOR}";
-  info "  Active Cursor: @%s.VAR.%s" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
-  info "  Projects:";
+  info "  Active Database: %s (%s)" "${THIS_BASE_NAME}" "${THIS_DB}";
+  info "  Context Cursor:  @%s.VAR.%s" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
+  info "  Projects in Active Base:";
   
-  local projects;
-  projects=$(do_ls "project");
-  
+  local projects=$(__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;");
   if [[ -n "${projects}" ]]; then
-    # This part also needs to be routed through the logger for capture
-    echo "${projects}" | while IFS= read -r line; do
-      info "    - %s" "${line}";
-    done
+    echo "${projects}" | while IFS= read -r line; do info "    - %s" "${line}"; done
   else
     info "    (No projects found)";
   fi
-  
   return 0;
 }
+
 ################################################################################
 #
 #  __pub_parse_source
 #
 ################################################################################
-# Description: Helper to parse the source argument for pub/unpub commands,
-#              determining the key and its value from a context chain or literal.
-# Arguments:
-#   1: source_arg (string) - The source string (e.g., "@chain.KEY" or "KEY=VALUE").
-# Sets Globals: _PUB_KEY, _PUB_VALUE
-# Returns: 0 on success, 1 on failure.
-# Local Variables: source_arg, clean_chain, context_only, old_opt_chain
+# Description: Helper to parse the source argument for pub/unpub commands.
 __pub_parse_source(){
   local source_arg="$1";
-
-  # Reset globals to ensure clean state
-  _PUB_KEY=;
-  _PUB_VALUE=;
+  _PUB_KEY=; _PUB_VALUE=;
 
   if is_chain "${source_arg}"; then
-    # CONTEXT MODE
-    _PUB_KEY="${source_arg##*.}"; # Get part after last dot (the key)
+    _PUB_KEY="${source_arg##*.}";
     __validate_name "${_PUB_KEY}" "Key" || return 1;
-    local context_only="${source_arg%.*}"; # Get part before last dot (the context chain)
-
-    # Temporarily set opt_context_chain to use the existing resolver
-    local old_opt_chain="${opt_context_chain}"; # Save current opt_context_chain
+    local context_only="${source_arg%.*}";
+    local old_opt_chain="${opt_context_chain}";
     opt_context_chain="${context_only}";
-    __resolve_context || { opt_context_chain="${old_opt_chain}"; return 1; }; # Resolve context, restore on failure
-    opt_context_chain="${old_opt_chain}"; # Restore it
-    
+    __resolve_context || { opt_context_chain="${old_opt_chain}"; return 1; };
+    opt_context_chain="${old_opt_chain}";
     _PUB_VALUE=$(do_getv "${_PUB_KEY}");
-    if [[ $? -ne 0 || -z "${_PUB_VALUE}" ]]; then # Check both exit code and value
+    if [[ $? -ne 0 || -z "${_PUB_VALUE}" ]]; then
       error "Key '${_PUB_KEY}' not found or value is empty in context '${context_only}'.";
       return 1;
     fi
   else
-    # LITERAL MODE (KEY=VALUE for pub, KEY for unpub)
     _PUB_KEY="${source_arg%%=*}";
     _PUB_VALUE="${source_arg#*=}";
-    if __is_empty "${_PUB_KEY}" || ([[ "${source_arg}" == "${_PUB_KEY}" ]] && [[ "${FUNCNAME[1]}" == "do_pub" ]]); then
-      # For do_pub, if no '=' is found, it's an error. For unpub, a simple key is fine.
+    if __is_empty "${_PUB_KEY}" || { [[ "${source_arg}" == "${_PUB_KEY}" ]] && [[ "${FUNCNAME[1]}" == "do_pub" ]]; }; then
       error "Invalid key or KEY=VALUE format specified for publish/unpublish.";
       return 1;
     fi
@@ -1510,75 +1503,38 @@ __pub_parse_source(){
 #
 ################################################################################
 # Description: Helper to remove a key-value pair line from a file using sed.
-# Arguments:
-#   1: key (string) - The key to remove.
-#   2: dest (string) - The destination file.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: key, dest, sentinel_comment, sed_script
 ___pub_unlink_key(){
-  local key="$1";
-  local dest="$2";
-
-  if ! is_file "${dest}"; then return 0; fi # Nothing to do if file doesn't exist
-
+  local key="$1"; local dest="$2";
+  if ! is_file "${dest}"; then return 0; fi
   local sentinel_comment="# published by bookdb";
-  
-  # THE FIX: A simpler, more robust regex.
-  # It matches the line start, the key, an equals sign, anything, and the sentinel.
   local sed_script="/^${key}=.*${sentinel_comment}/d";
-
   __sed_in_place "${sed_script}" "${dest}";
   return $?;
 }
+
 ################################################################################
 #
 #  do_pub
 #
 ################################################################################
 # Description: Publishes a single key-value pair to an external file.
-# Arguments:
-#   1: source_arg (string) - The source (e.g., "@chain.KEY" or "KEY=VALUE").
-#   2: dest (string) - The destination file path.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, source_arg, dest, date_str, output_line
 do_pub(){
-  local ret=1;
-  local source_arg="$1";
-  local dest="$2";
+  local source_arg="$1"; local dest="$2";
+  if __is_empty "${source_arg}" || __is_empty "${dest}"; then error "Usage: bookdb pub <@chain.KEY|KEY=VALUE> <destination_file>"; return 1; fi
+  if ! is_rw_filepath "${dest}"; then error "Destination is not writable or its directory does not exist: ${dest}"; return 1; fi
 
-  if __is_empty "${source_arg}" || __is_empty "${dest}"; then
-    error "Usage: bookdb pub <@chain.KEY|KEY=VALUE> <destination_file>";
-    return 1;
-  fi
-
-  if ! is_rw_filepath "${dest}"; then
-    error "Destination is not writable or its directory does not exist: ${dest}";
-    return 1;
-  fi
-
-  # Use the helper to parse the source and get the key/value
   __pub_parse_source "${source_arg}" || return 1;
-  
-  if __is_empty "${_PUB_VALUE}"; then # If value couldn't be resolved (e.g., key not found)
-      error "Could not resolve a value to publish for '${_PUB_KEY}'.";
-      return 1;
-  fi
+  if __is_empty "${_PUB_VALUE}"; then error "Could not resolve a value to publish for '${_PUB_KEY}'."; return 1; fi
 
-  ___pub_unlink_key "${_PUB_KEY}" "${dest}"; # Remove existing entry if any
+  ___pub_unlink_key "${_PUB_KEY}" "${dest}";
   log "Publishing '${_PUB_KEY}' to '${dest}'...";
-  local date_str;
-  date_str=$(date);
-  # Ensure value is quoted for safety in typical config files
+  local date_str=$(date);
   local output_line="${_PUB_KEY}=\"${_PUB_VALUE}\" # published by bookdb on ${date_str}";
   
   printf "%s\n" "${output_line}" >> "${dest}";
-  if [[ $? -eq 0 ]]; then
-    okay "Published key '${_PUB_KEY}' to '${dest}'.";
-    ret=0;
-  else
-    error "Failed to write to file: ${dest}";
-  fi
-  return "${ret}";
+  if [[ $? -eq 0 ]]; then okay "Published key '${_PUB_KEY}' to '${dest}'."; return 0; fi
+  error "Failed to write to file: ${dest}";
+  return 1;
 }
 
 ################################################################################
@@ -1587,37 +1543,17 @@ do_pub(){
 #
 ################################################################################
 # Description: Removes a published key-value pair from an external file.
-# Arguments:
-#   1: source_arg (string) - The source (e.g., "@chain.KEY" or "KEY").
-#   2: dest (string) - The destination file path.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, source_arg, dest
 do_unpub(){
-  local ret=1;
-  local source_arg="$1";
-  local dest="$2";
+  local source_arg="$1"; local dest="$2";
+  if __is_empty "${source_arg}" || __is_empty "${dest}"; then error "Usage: bookdb unpub <@chain.KEY|KEY> <destination_file>"; return 1; fi
+  if ! is_file "${dest}"; then log "File not found: ${dest}. Nothing to unpublish."; return 0; fi
 
-  if __is_empty "${source_arg}" || __is_empty "${dest}"; then
-    error "Usage: bookdb unpub <@chain.KEY|KEY> <destination_file>";
-    return 1;
-  fi
-  
-  if ! is_file "${dest}"; then
-    error "File not found: ${dest}. Nothing to unpublish.";
-    return 0; # Not a failure if file doesn't exist, as it's already "unpublished"
-  fi
-
-  # Parse the source to get the key. Value is not needed for unpub.
-  __pub_parse_source "${source_arg}"; # This sets _PUB_KEY global
-  if __is_empty "${_PUB_KEY}"; then
-    error "Could not determine a key to unpublish.";
-    return 1;
-  fi
+  __pub_parse_source "${source_arg}";
+  if __is_empty "${_PUB_KEY}"; then error "Could not determine a key to unpublish."; return 1; fi
 
   ___pub_unlink_key "${_PUB_KEY}" "${dest}";
   okay "Unpublished '${_PUB_KEY}' from '${dest}' (if it existed).";
-  ret=0;
-  return "${ret}";
+  return 0;
 }
 
 ################################################################################
@@ -1626,43 +1562,23 @@ do_unpub(){
 #
 ################################################################################
 # Description: Increments a numerical variable in the active context.
-# Arguments:
-#   1: key (string) - The key of the numerical variable.
-#   2: amount (integer, optional) - The amount to increment by (default: 1).
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, key, amount, current_val, new_val
 do_incv(){
-  local ret=1;
-  local key="$1";
-  local amount="${2:-1}"; # Default increment is 1 if not specified
-
-  if __is_empty "${key}"; then
-    error "Usage: bookdb incv <KEY> [amount]";
-    return 1;
-  fi
+  local key="$1"; local amount="${2:-1}";
+  if __is_empty "${key}"; then error "Usage: bookdb incv <KEY> [amount]"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
-  if ! is_integer "${amount}"; then
-    error "Increment amount must be an integer: '${amount}'.";
-    return 1;
-  fi
+  if ! is_integer "${amount}"; then error "Increment amount must be an integer: '${amount}'."; return 1; fi
 
-  local current_val;
-  current_val=$(do_getv "${key}");
-  
-  # If current_val is empty, treat as 0 for arithmetic. If non-empty but not integer, it's an error.
+  local current_val=$(do_getv "${key}");
   if __is_empty "${current_val}"; then
     current_val=0;
   elif ! is_integer "${current_val}"; then
     error "Cannot increment: Key '${key}' does not have an integer value ('${current_val}').";
     return 1;
   fi
-
   local new_val=$((current_val + amount));
   log "Incrementing '${key}' to ${new_val}...";
-  do_setv "${key}=${new_val}"; # Use do_setv to update
-  ret=$?;
-  
-  return "${ret}";
+  do_setv "${key}=${new_val}";
+  return $?;
 }
 
 ################################################################################
@@ -1671,42 +1587,23 @@ do_incv(){
 #
 ################################################################################
 # Description: Decrements a numerical variable in the active context.
-# Arguments:
-#   1: key (string) - The key of the numerical variable.
-#   2: amount (integer, optional) - The amount to decrement by (default: 1).
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, key, amount, current_val, new_val
 do_decv(){
-  local ret=1;
-  local key="$1";
-  local amount="${2:-1}"; # Default decrement is 1 if not specified
-
-  if __is_empty "${key}"; then
-    error "Usage: bookdb decv <KEY> [amount]";
-    return 1;
-  fi
+  local key="$1"; local amount="${2:-1}";
+  if __is_empty "${key}"; then error "Usage: bookdb decv <KEY> [amount]"; return 1; fi
   __validate_name "${key}" "Key" || return 1;
-  if ! is_integer "${amount}"; then
-    error "Decrement amount must be an integer: '${amount}'.";
-    return 1;
-  fi
+  if ! is_integer "${amount}"; then error "Decrement amount must be an integer: '${amount}'."; return 1; fi
   
-  local current_val;
-  current_val=$(do_getv "${key}");
-
+  local current_val=$(do_getv "${key}");
   if __is_empty "${current_val}"; then
     current_val=0;
   elif ! is_integer "${current_val}"; then
     error "Cannot decrement: Key '${key}' does not have an integer value ('${current_val}').";
     return 1;
   fi
-
   local new_val=$((current_val - amount));
   log "Decrementing '${key}' to ${new_val}...";
-  do_setv "${key}=${new_val}"; # Use do_setv to update
-  ret=$?;
-
-  return "${ret}";
+  do_setv "${key}=${new_val}";
+  return $?;
 }
 
 ################################################################################
@@ -1715,42 +1612,28 @@ do_decv(){
 #
 ################################################################################
 # Description: Permanently deletes all bookdb data and artifacts.
-# Returns: 0 on success, 1 on cancellation or failure.
-# Local Variables: profile_file
 do_reset(){
-  local profile_file;
-  profile_file=$(__find_shell_profile);
-
   if __confirm_action "This will permanently delete all bookdb data and uninstall the command. Continue?"; then
-    __backup_db || return 1; # Backup before destructive action
+    __backup_db || return 1;
     
-    # Unlink from shell profile
-    if [[ -n "${profile_file}" ]]; then
-      __unlink_from_profile "${profile_file}";
-    fi
+    local profile_file=$(__find_shell_profile);
+    if [[ -n "${profile_file}" ]]; then __unlink_from_profile "${profile_file}"; fi
 
-    if [[ "${SOFT_RESET}" -eq 0 ]]; then # If SOFT_RESET is 0 (true for soft reset)
-      log "Proceeding with SOFT RESET: Preserving bookdb executable, symlink, and database.";
-      # Only remove config and state files/directories
-      rm -rf "${BOOK_ETC}" "${BOOK_STATE}" || error "Failed to remove config/state directories.";
-      # Do NOT remove BOOK_LIB/${BOOK_PREF}, BOOK_BIN/${BOOK_PREF}, or BOOK_DATA (which is BOOK_SHARE)
-    else # FULL RESET
-      log "Proceeding with FULL RESET: Deleting all bookdb data and artifacts.";
-      # Remove installed directories and the binary
-      rm -rf "${BOOK_SHARE}" "${BOOK_ETC}" "${BOOK_STATE}" || error "Failed to remove data/config/state directories.";
-      rm -f "${BOOK_LIB}/${BOOK_PREF}" || error "Failed to remove library script.";
-      rm -f "${BOOK_BIN}/${BOOK_PREF}" || error "Failed to remove bin symlink.";
-    fi
+    rm -f "${BOOK_BASE_CURSOR}" || error "Failed to remove base cursor file.";
+    rm -f "${BOOK_CONTEXT_CURSOR}" || error "Failed to remove context cursor file.";
+    rm -f "${BOOK_DATA}"/*.sqlite || error "Failed to remove database files.";
+    rm -rf "${BOOK_SHARE}/backups" || error "Failed to remove backups.";
 
-    printf "\n[OKAY] Reset and uninstall complete.\n\n" >&2;
-    printf "To clear your shell's command cache, run the following command:\n\n" >&2;
-    printf "    hash -r\n\n" >&2;
-    printf "You may also need to start a new shell session for changes to take full effect.\n" >&2;
+    rm -rf "${BOOK_ETC}" "${BOOK_STATE}" || error "Failed to remove config/state directories.";
+    rm -f "${BOOK_LIB}/${BOOK_PREF}" || error "Failed to remove library script.";
+    rm -f "${BOOK_BIN}/${BOOK_PREF}" || error "Failed to remove bin symlink.";
+
+    printf "\n[OKAY] Reset and uninstall complete.\n" >&2;
+    printf "To clear your shell's command cache, run 'hash -r' and start a new shell session.\n" >&2;
     return 0;
-  else
-    log "Reset cancelled.";
-    return 1;
   fi
+  log "Reset cancelled.";
+  return 1;
 }
 
 ################################################################################
@@ -1758,41 +1641,44 @@ do_reset(){
 #  do_migrate
 #
 ################################################################################
-# Description: Exports all keystores to individual .env files in a backup directory
-#              created in the user's HOME.
-# Arguments: None.
-# Returns: 0 on full success, 1 if any export fails.
-# Local Variables: ret, backup_dir, sql, results, pns, kvns, filename
+# Description: Exports all keystores to individual .env files.
 do_migrate(){
   local ret=0;
-  # THE FIX: Create the backup directory in ${HOME}, not the current directory.
   local backup_dir="${HOME}/bookdb_fullbak_$(date +%Y%m%d_%H%M%S)";
-  
   info "Starting full migration export to directory: %s" "${backup_dir}";
   mkdir -p "${backup_dir}" || fatal "Could not create migration directory: ${backup_dir}.";
   
-  # Get a list of all project/keystore pairs
-  local sql="SELECT p.pns_name, k.kvns_name FROM project_ns p JOIN keyval_ns k ON p.pns_id = k.pns_id_fk ORDER BY p.pns_name, k.kvns_name;";
-  local results;
-  results=$(__db_query "${sql}" "-csv");
-  
-  if __is_empty "${results}"; then
-    log "No keystores found to migrate.";
-    return 0;
-  fi
+  local original_this_db="${THIS_DB}";
+  local original_this_base_name="${THIS_BASE_NAME}";
 
-  echo "${results}" | while IFS=, read -r pns kvns; do
-    local filename="${backup_dir}/${pns}_${kvns}.env";
-    info "  -> Exporting %s/%s to %s" "${pns}" "${kvns}" "${filename}";
-    __write_keystore_to_file "${pns}" "${kvns}" "${filename}";
-    if [[ $? -ne 0 ]]; then ret=1; fi
+  local bases_to_migrate;
+  if [[ -n "$opt_all" ]]; then
+    log "Migrating all bases...";
+    bases_to_migrate=$(_list_bases);
+  else
+    log "Migrating current base only...";
+    bases_to_migrate="${THIS_BASE_NAME}";
+  fi
+  
+  for base in ${bases_to_migrate}; do
+    info "Processing base: %s" "$base";
+    THIS_DB=$(__get_base_path "${base}");
+    local pns_results=$(__db_query "SELECT pns_name FROM project_ns;" );
+    for pns in ${pns_results}; do
+        local kvns_results=$(__db_query "SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = (SELECT pns_id FROM project_ns WHERE pns_name = '${pns}');" );
+        for kvns in ${kvns_results}; do
+            local filename="${backup_dir}/${base}_${pns}_${kvns}.env";
+            info "  -> Exporting %s/%s/%s to %s" "${base}" "${pns}" "${kvns}" "${filename}";
+            __write_keystore_to_file "${pns}" "${kvns}" "${filename}";
+            if [[ $? -ne 0 ]]; then ret=1; fi
+        done
+    done
   done
 
-  if [[ ${ret} -eq 0 ]]; then
-    okay "Migration complete.";
-  else
-    error "Migration completed with errors.";
-  fi
+  THIS_DB="${original_this_db}";
+  THIS_BASE_NAME="${original_this_base_name}";
+
+  if [[ ${ret} -eq 0 ]]; then okay "Migration complete."; else error "Migration completed with errors."; fi
   return "${ret}";
 }
 
@@ -1801,79 +1687,42 @@ do_migrate(){
 #  do_export
 #
 ################################################################################
-# Description: Exports a specific keystore to a PNS_KVNS.env file in the current directory.
-# Arguments:
-#   1: what (string) - Must be "keystore".
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, what, target_filename
+# Description: Exports a specific keystore to a .env file.
 do_export(){
-  local ret=1;
   local what="$1";
-
-  # This check is now robust because `main` no longer interferes.
-  if [[ "${what}" != "keystore" ]]; then
-    error "Usage: bookdb export keystore";
-    return 1;
-  fi
-
-  # Context is already resolved by main(), so we can just use the global variables.
+  if [[ "${what}" != "keystore" ]]; then error "Usage: bookdb export keystore"; return 1; fi
   local target_filename="${BOOK_PNS_NAME}_${BOOK_KVNS_NAME}_exported.env";
   info "Exporting context '@%s.VAR.%s' to ./%s" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${target_filename}";
-  
   __write_keystore_to_file "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${target_filename}";
-  ret=$?;
-  
-  return "${ret}";
+  return $?;
 }
+
 ################################################################################
 #
 #  do_import
 #
 ################################################################################
 # Description: Imports keys from a .env file into a specified or inferred context.
-# Arguments:
-#   1: file_path (string) - Path to the .env file.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, file_path, keys_to_import, vals_to_import, line, key, val,
-#                  T_keystore, T_chain, T_filter, T_writemode, f_scope, f_prefix,
-#                  f_suffix, f_contain, filtered_keys, filtered_vals, i, is_private,
-#                  basename, pns_kvns, pns, kvns, existing_val
 do_import(){
-  local ret=1;
   local file_path="$1";
   if __is_empty "${file_path}"; then error "Usage: bookdb import <file.env>"; return 1; fi
   if [[ ! -r "${file_path}" ]]; then error "File not found or not readable: ${file_path}"; return 1; fi
 
   log "Parsing file: ${file_path}";
-  local -a keys_to_import=(); # Use declare -a for explicit array
-  local -a vals_to_import=();
-  local T_keystore=; local T_chain=; local T_filter=; local T_writemode="overwrite";
+  local -a keys_to_import=(); local -a vals_to_import=();
+  local T_chain=; local T_writemode="overwrite";
 
-  # Read file line by line, handling various formats and metadata
   while IFS= read -r line || [[ -n "$line" ]]; do
-    line=$(echo "${line}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'); # Trim whitespace
-    # Corrected `__is_empty` check and comment check
+    line=$(echo "${line}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//');
     if __is_empty "$line" || [[ "$line" == \#* ]]; then continue; fi
-    
-    # Remove 'export ' prefix if present
     line="${line#export }";
-    
-    local key="${line%%=*}";
-    local val="${line#*=}";
-
-    # Skip lines that don't look like KEY=VALUE
+    local key="${line%%=*}"; local val="${line#*=}";
     [[ "$key" == "$line" ]] && continue;
-
-    # Parse special bookdb metadata keys
     case "$key" in
-      (_BOOKDB_KEYSTORE_) T_keystore="${val}"; continue ;;
       (_BOOKDB_CHAIN_)    T_chain="${val}"; continue ;;
-      (_BOOKDB_FILTER_)   T_filter="${val}"; continue ;;
       (_BOOKDB_WRITEMODE_) T_writemode="${val}"; continue ;;
     esac
-
-    # Collect valid keys and values for import
-    if [[ "$key" =~ ^[a-zA-Z0-9_]+$ ]]; then # Basic validation for collected keys
+    if __validate_name "$key" "Key from file"; then
       keys_to_import+=("$key");
       vals_to_import+=("$val");
     else
@@ -1881,104 +1730,49 @@ do_import(){
     fi
   done < "${file_path}";
   
-  # Filtering logic
-  local f_scope="public"; local f_prefix=; local f_suffix=; local f_contain=;
-  if [[ -n "${T_filter}" ]]; then
-      local IFS_bak=$IFS; IFS=',';
-      for part in ${T_filter}; do
-          case "$part" in
-              (scope=*) f_scope="${part#*=}" ;;
-              (prefix=*) f_prefix="${part#*=}" ;;
-              (suffix=*) f_suffix="${part#*=}" ;;
-              (contain=*) f_contain="${part#*=}" ;;
-          esac
-      done
-      IFS=$IFS_bak;
-  fi
+  if [[ ${#keys_to_import[@]} -eq 0 ]]; then error "No valid keys to import from '${file_path}'."; return 1; fi
 
-  local -a filtered_keys=();
-  local -a filtered_vals=();
-  local i;
-  for i in "${!keys_to_import[@]}"; do
-    local key="${keys_to_import[$i]}";
-    local is_private=false;
-    [[ "$key" == _* ]] && is_private=true;
-    
-    # Apply scope filter
-    case "${f_scope}" in
-      (public) if [[ "${is_private}" == true ]]; then continue; fi ;;
-      (private) if [[ "${is_private}" == false ]]; then continue; fi ;;
-      (all) ;; # 'all' scope includes both public and private
-      (*) warn "Unknown scope filter: ${f_scope}. Importing all keys."; ;; # Default to all if unknown scope
-    esac
-
-    # Apply prefix, suffix, and contain filters
-    if [[ -n "$f_prefix" && "$key" != "$f_prefix"* ]]; then continue; fi
-    if [[ -n "$f_suffix" && "$key" != *"$f_suffix" ]]; then continue; fi
-    if [[ -n "$f_contain" && "$key" != *"$f_contain"* ]]; then continue; fi
-
-    filtered_keys+=("$key");
-    filtered_vals+=("${vals_to_import[$i]}");
-  done
-
-  if [[ ${#filtered_keys[@]} -eq 0 ]]; then
-    error "No keys to import after filtering from '${file_path}'.";
-    return 1;
-  fi
-
-  # Infer context from filename if no other context is specified
-  if __is_empty "${T_chain}" && __is_empty "${T_keystore}"; then
-    local basename; basename=$(basename "${file_path}");
+  if __is_empty "${T_chain}"; then
+    local basename=$(basename "${file_path}");
     local pns_kvns="${basename%.env}";
-    # Check if basename has at least one underscore for splitting
     if [[ "${pns_kvns}" == *"_"* ]]; then
-      # Robustly split on the LAST underscore to handle names like 'my_project_name_secrets'.
-      local pns="${pns_kvns%_*}";
-      local kvns="${pns_kvns##*_}";
+      local pns="${pns_kvns%_*}"; local kvns="${pns_kvns##*_*}";
       T_chain="@${pns}.VAR.${kvns}";
       log "Inferred context from filename: '${T_chain}'.";
     fi
   fi
 
-  # Resolve target context based on T_chain or T_keystore
   if [[ -n "${T_chain}" ]]; then
     opt_context_chain="${T_chain}";
     __resolve_context || return 1;
-  elif [[ -n "${T_keystore}" ]]; then
-    opt_keydb="${T_keystore}";
-    __resolve_context || return 1;
   else
-    # If no context is set by file metadata or filename, use current context
-    log "No target context specified in file or filename; using current cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}.";
+    log "No target context specified; using current cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}.";
   fi
 
-  # Confirmation and import logic
-  printf "The following ${#filtered_keys[@]} keys will be imported into context:\n" >&2;
+  printf "The following ${#keys_to_import[@]} keys will be imported into context:\n" >&2;
   printf "${yellow}@%s.VAR.%s${xx} with write mode: %s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${T_writemode}" >&2;
   printf "%s\n" "$LINE" >&2;
-  for key in "${filtered_keys[@]}"; do printf "  - %s\n" "$key" >&2; done
+  for key in "${keys_to_import[@]}"; do printf "  - %s\n" "$key" >&2; done
   printf "%s\n" "$LINE" >&2;
+
   if __confirm_action "Proceed with import?"; then
     log "Importing keys...";
-    for i in "${!filtered_keys[@]}"; do
-      local key_to_import="${filtered_keys[$i]}";
-      local val_to_import="${filtered_vals[$i]}";
+    for i in "${!keys_to_import[@]}"; do
+      local key_to_import="${keys_to_import[$i]}";
       if [[ "${T_writemode}" == "addonly" ]]; then
-        local existing_val; existing_val=$(do_getv "${key_to_import}");
+        local existing_val=$(do_getv "${key_to_import}");
         if [[ $? -eq 0 && -n "${existing_val}" ]]; then
           log "Skipping existing key (addonly mode): '${key_to_import}'.";
-          continue; # Skip if key exists and mode is addonly
+          continue;
         fi
       fi
-      do_setv "${key_to_import}=${val_to_import}"; # Use do_setv for upsert logic
+      do_setv "${key_to_import}=${vals_to_import[$i]}";
     done
     okay "Import complete.";
-    ret=0;
-  else
-    log "Import cancelled by user.";
-    ret=1;
+    return 0;
   fi
-  return "${ret}";
+  log "Import cancelled by user.";
+  return 1;
 }
 
 ################################################################################
@@ -1987,15 +1781,10 @@ do_import(){
 #
 ################################################################################
 # Description: Creates or verifies the SQLite database schema for bookdb.
-# Returns: 0 on success, 1 on fatal error.
-# Local Variables: sql_create_pns, sql_create_kvns, sql_create_vars, global_pns_id
 __setup_sql(){
   log "Creating/verifying database schema...";
-
-
   [ -z "${THIS_DB}" ] && select_db;
 
-  # Create the database schema
   touch "${THIS_DB}" || fatal "Failed to create database file: ${THIS_DB}";
   
   local sql_create_pns="CREATE TABLE IF NOT EXISTS project_ns (pns_id INTEGER PRIMARY KEY, pns_name TEXT UNIQUE NOT NULL);";
@@ -2006,17 +1795,9 @@ __setup_sql(){
   __db_query "${sql_create_kvns}" || fatal "Failed to create table: keyval_ns";
   __db_query "${sql_create_vars}" || fatal "Failed to create table: vars";
 
-  # Enable WAL mode for better concurrency
-  #__db_query "PRAGMA journal_mode=WAL;";
   __db_query "PRAGMA journal_mode=WAL;" 1>/dev/null || fatal "Failed to set WAL journal mode.";
   
-  # Insert or ignore default 'GLOBAL' project namespace
-  __db_query "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('GLOBAL');" || fatal "Failed to create default 'GLOBAL' project.";
-
-  local global_pns_id;
-  global_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';" | tr -d '\n');
-  # Insert or ignore default 'MAIN' keyval namespace for 'GLOBAL'
-  __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${global_pns_id});" || fatal "Failed to create default 'MAIN' keyval store.";
+  __ensure_default_keystore_exists;
   return 0;
 }
 
@@ -2026,7 +1807,6 @@ __setup_sql(){
 #
 ################################################################################
 # Description: Creates all necessary XDG+ compliant directories for bookdb.
-# Returns: 0 on success, 1 on fatal error.
 __setup_dirs(){
   log "Checking for XDG+ directories...";
   mkdir -p "${BOOK_SHARE}" "${BOOK_LIB}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_BIN}" || fatal "Failed to create directories.";
@@ -2039,13 +1819,8 @@ __setup_dirs(){
 #
 ################################################################################
 # Description: Confirms installation actions with the user (unless in dev mode).
-# Arguments:
-#   1: profile_file (string) - Path to the detected shell profile.
-# Returns: 0 if confirmed or in dev mode, 1 if cancelled.
-# Local Variables: profile_file
 __setup_confirm(){
   local profile_file="$1";
-
   if __is_empty "${profile_file}"; then
     error "Could not find a suitable shell profile (~/.bashrc, ~/.zshrc, ~/.profile).";
     error "Please create one and run install again.";
@@ -2054,18 +1829,14 @@ __setup_confirm(){
   
   if is_user; then 
     info "The installer will perform the following actions:\n";
-
-    printf "  1. Create directories in: %s (and sub-paths)\n" "${_XDG_HOME}" >&2; 
+    printf "  1. Create directories in: %s\n" "${_XDG_HOME}" >&2; 
     printf "  2. Copy script to:        %s\n" "${BOOK_LIB}/${BOOK_PREF}" >&2;
-    printf "  3. Create symlink:        %s -> %s\n" "${BOOK_BIN}/${BOOK_PREF}" "${BOOK_LIB}/${BOOK_PREF}" >&2;
+    printf "  3. Create symlink:        %s\n" "${BOOK_BIN}/${BOOK_PREF}" >&2;
     printf "  4. Create RC file:        %s\n" "${BOOK_RC}" >&2;
     printf "  5. Add source line to:    %s\n" "${profile_file}" >&2;
     printf "  6. Initialize database:   %s\n" "${BOOK_DB}" >&2;
 
-    if ! __confirm_action "Proceed with full installation?"; then
-      log "Installation cancelled.";
-      return 1;
-    fi
+    if ! __confirm_action "Proceed with installation/update?"; then log "Action cancelled."; return 1; fi
   else
     dev "Dev mode skipped confirm prompt.";
   fi
@@ -2078,12 +1849,9 @@ __setup_confirm(){
 #
 ################################################################################
 # Description: Prints the content for the bookdb RC file.
-# Returns: RC file content to stdout.
 _get_rc_template(){
     cat <<EOF
 # bookdb runtime configuration
-export BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME}"; # Set to actual script location or default
-
 # Add bookdb bin to PATH if it's not already there.
 if [[ -d "${BOOK_BIN}" ]]; then
   case ":\$PATH:" in
@@ -2101,171 +1869,70 @@ EOF
 #
 ################################################################################
 # Description: Performs various checks to verify the bookdb installation state.
-# Returns: 0 if all checks pass, 1 otherwise.
 do_sanity_check(){
   local ret=0;
   info "Running sanity checks...";
-  
-  if is_file "$BOOK_RC"; then trace "RC file exists: ${BOOK_RC}"; else error "RC file MISSING: ${BOOK_RC}"; ret=1; fi
-  if is_file "$BOOK_DB"; then trace "Database file exists: ${BOOK_DB}"; else error "Database file MISSING: ${BOOK_DB}"; ret=1; fi
-  if is_file "$BOOK_CURSOR"; then trace "Cursor file exists: ${BOOK_CURSOR}"; else warn "Cursor file MISSING: ${BOOK_CURSOR}"; fi # Cursor is not critical for install, so warn
+  if is_file "$BOOK_RC"; then trace "RC file exists: ${BOOK_RC}"; else error "RC file MISSING"; ret=1; fi
+  if [[ -f "${BOOK_BASE_CURSOR}" && -f "${BOOK_CONTEXT_CURSOR}" ]]; then trace "Cursor files exist"; else warn "Cursor files MISSING"; fi
+  if command -v bookdb >/dev/null 2>&1; then trace "'bookdb' command found in PATH."; else error "'bookdb' not in PATH"; ret=1; fi
 
-  if [[ -d "${BOOK_BIN}" ]]; then
-    if command -v bookdb >/dev/null 2>&1; then
-      trace "'bookdb' command found in PATH.";
-    else
-      error "'bookdb' command not found in PATH. Check your shell profile and 'hash -r'."; ret=1;
-    fi
-  else
-    error "Bookdb bin directory MISSING: ${BOOK_BIN}."; ret=1;
-  fi
-
-  local profile_file;
-  profile_file=$(__find_shell_profile);
+  local profile_file=$(__find_shell_profile);
   if __is_empty "${profile_file}"; then
     error "Could not find a shell profile to check linking."; ret=1;
   elif grep -q "source '${BOOK_RC}'" "${profile_file}" 2>/dev/null; then
     trace "Bookdb RC file is sourced in ${profile_file}.";
   else
-    error "Bookdb RC file is NOT sourced in ${profile_file}. Please add 'source \"${BOOK_RC}\"' to it."; ret=1;
+    error "Bookdb RC file is NOT sourced in ${profile_file}."; ret=1;
   fi
-
-  if [[ "${ret}" -eq 0 ]]; then
-    okay "Sanity checks passed.";
-  else
-    error "Sanity checks failed. Please address the issues.";
-  fi
+  if [[ "${ret}" -eq 0 ]]; then okay "Sanity checks passed."; else error "Sanity checks failed."; fi
   return "${ret}";
 }
-
-################################################################################
-#
-#  do_update
-#
-################################################################################
-# Does the file copy work only, in case all we need to do is update the bin
-# install uses this to get the right copy path
-
-  do_update(){
-    local ret=1 mode;
-
-    __setup_dirs || return 1;
-
-    if [ -n "$BOOK_PROJECT_HOME" ] && [ -d "$BOOK_PROJECT_HOME" ]; then
-
-      local script_path;
-      script_path=$(readlink -f "${BOOK_PROJECT_HOME}");
-
-      if [[ "$script_path" =~ ^.*repo.*$ ]]; then
-        mode="Fresh install from the repo";
-      elif [[ ! "$script_path" =~ ^.*lib.*$ ]]; then
-        mode="Custom install from download";
-      else
-        noop; # is this getting lib again??potential error case
-      fi
-
-    fi
-
-    if ! is_defined "$script_path"; then
-      warn "script path not defined";
-      script_path=$(readlink -f "${APP_BOOKDB}");
-    fi
-
-    script_path="${script_path}/${BOOK_PREF}";
-
-    if [ ! -f "${script_path}" ]; then
-      error "Failed to resolve script path: ${script_path}. ($APP_BOOKDB) Exiting.";
-      exit 1
-    fi
-
-    _cp_path="${BOOK_LIB}/${BOOK_PREF}";
-
-
-
-    is_file "${_cp_path}" && {
-      #warn "Found older bookdb version. Updating.";
-      rm -f "${_cp_path}"; #removing old one...
-      mode="Updating to newer version";
-    }
-
-
-    cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script!  ${_cp_path}.";
-    chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
-    okay "$mode -> bookdb";
-
-    echo "$_cp_path";
-  }
 
 ################################################################################
 #
 #  do_install
 #
 ################################################################################
-# Description: Installs or verifies the bookdb application.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret, profile_file, script_path, _cp_path, _ln_path
-
-  do_install(){
-    local ret=1;
-    local profile_file;
-    profile_file=$(__find_shell_profile);
-
+# Description: Installs or updates the bookdb application using the Installer Pattern.
+do_install(){
+    local profile_file=$(__find_shell_profile);
     __setup_confirm "$profile_file" || return 1;
+    __setup_dirs || return 1;
 
+    # --- Installer Pattern Logic ---
+    local script_path=$(readlink -f "${APP_BOOKDB}");
+    if [[ ! -f "${script_path}" ]]; then
+        fatal "CRITICAL: Could not resolve path for currently executing script: ${APP_BOOKDB}.";
+    fi
+    local _cp_path="${BOOK_LIB}/${BOOK_PREF}";
+    local _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    info "Installing/Updating from source: %s" "${script_path}";
+    cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library: ${_cp_path}.";
+    chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
+    # --- End Installer Pattern ---
 
-    #_cp_path="${BOOK_LIB}/${BOOK_PREF}";
-    #_ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    if [[ ! -e "${BOOK_BASE_CURSOR}" ]]; then
+        _create_base "main" || fatal "Failed to create initial 'main' database.";
+        printf "%s" "main" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write initial base cursor.";
+    fi
 
-    # Resolve the actual path of the currently executing script
-    # local script_path;
-    # script_path=$(readlink -f "${APP_BOOKDB}");
-
-    # if [[ ! -f "${script_path}" ]]; then
-    #     fatal "Failed to resolve script path: ${APP_BOOKDB}. Exiting.";
-    # fi
-
-    # Copy and permission the script (cp before ln -s)
-
-    # [ -f "${_cp_path}" ] && {
-    #   warn "Found older bookdb version. Updating.";
-    #   rm -f "${_cp_path}"; #removing old one...
-    
-    # }
-
-
-    #cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
-    #chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
-    _ln_path="${BOOK_BIN}/${BOOK_PREF}";
-    _cp_path=$(do_update);
-
-
-    # Create symlink
-    if [[ ! -e "${_ln_path}" ]]; then # Check if symlink/file exists at all
-      info "Creating symlink from '${_cp_path}' to '${_ln_path}'...";
-      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory: ${_ln_path}.";
-    elif [[ -L "${_ln_path}" && "$(readlink "${_ln_path}")" == "${_cp_path}" ]]; then
-      warn "Bin symlink already exists and is correct at '${_ln_path}'.";
+    if [[ ! -L "${_ln_path}" ]]; then
+      info "Creating symlink: %s -> %s" "${_ln_path}" "${_cp_path}";
+      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink: ${_ln_path}.";
     else
-      warn "A file or incorrect symlink already exists at '${_ln_path}'. Attempting to replace.";
-      rm -f "${_ln_path}" || error "Failed to remove existing file/symlink at '${_ln_path}'.";
-      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory after cleanup: ${_ln_path}.";
+      warn "Symlink already exists and is correct: '${_ln_path}'.";
     fi
 
     _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file: ${BOOK_RC}.";
-    okay "Bookdb RC file created at '${BOOK_RC}'.";
-
-    # Link the RC file to the user's main shell profile
     __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration" || return 1;
-
-    __setup_sql || return 1; # Setup the database schema
+    __setup_sql || return 1; 
 
     if is_user; then
-      printf "\n[OKAY] Installation complete!\n\n" >&2;
-      printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
+      printf "\n[OKAY] Installation complete!\n" >&2;
+      printf "Please restart your shell or run 'source %s' to use the 'bookdb' command.\n" "${profile_file}" >&2;
     else
       dev "Dev mode installation complete.";
     fi
-    
     return 0;
   }
 
@@ -2275,10 +1942,9 @@ do_sanity_check(){
 #
 ################################################################################
 # Description: Lists all tables in the active database.
-# Returns: Exit status of sqlite3.
 do_tables(){
   printf "Tables in %s:\n" "${THIS_DB}" >&2;
-  __db_query ".tables" >&2; # Output of .tables should go to stderr for human readability
+  __db_query ".tables" >&2;
   return $?;
 }
 
@@ -2288,16 +1954,12 @@ do_tables(){
 #
 ################################################################################
 # Description: Dumps the contents of a specific table in the active database.
-# Arguments:
-#   1: table_name (string) - The name of the table to dump.
-# Returns: Exit status of sqlite3.
-# Local Variables: table_name
 do_tdump(){
   local table_name="$1";
   if __is_empty "${table_name}"; then error "Usage: bookdb tdump <TABLE_NAME>"; return 1; fi
   if ! [[ "${table_name}" =~ ^[a-zA-Z0-9_]+$ ]]; then error "Invalid table name specified: '${table_name}'."; return 1; fi
   printf "Dumping table: %s\n" "${table_name}" >&2;
-  __db_query "SELECT * FROM ${table_name};" "-header" "-column" >&2; # Output goes to stderr
+  __db_query "SELECT * FROM ${table_name};" "-header" "-column" >&2;
   return $?;
 }
 
@@ -2307,78 +1969,14 @@ do_tdump(){
 #
 ################################################################################
 # Description: Performs a clean installation by first resetting, then installing.
-# Returns: 0 on success, 1 on fatal error.
 __clean_install(){
   info "[+] Running Clean Install";
-  # Temporarily set opt_yes to auto-confirm during clean install
   local old_opt_yes="${opt_yes}";
   opt_yes=1;
   do_reset || fatal "Reset cancelled or failed during dev-setup.";
   do_install || fatal "Installation failed during dev-setup.";
-  opt_yes="${old_opt_yes}"; # Restore original opt_yes
+  opt_yes="${old_opt_yes}";
   return 0;
-}
-
-# THESE ARE IN PROGRESS DO NOT REMOVE
-# 1 arg
-INS_INTO_PNS="INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('%s');";
-SEL_ID_FROM_PNS="SELECT pns_id FROM project_ns WHERE pns_name ='%s';";
-
-# 2 args
-INS_INTO_KNS="INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('%s', %s);";
-SEL_ID_FROM_KNS="SELECT kvns_id FROM keyval_ns WHERE kvns_name = '%s' AND pns_id_fk = %s;"; # Corrected SQL for SELECT
-
-# 3 args
-INS_INTO_VARS="INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('%s', '%s', %s);"; # Removed outer quotes from %s
-
-# quick and dirty
-__samples=(
-  "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('myapp');"
-  "SELECT pns_id FROM project_ns WHERE pns_name = 'myapp';"
-  "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';"
-  "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('secrets', %s);"
-  "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('apis', %s);"
-  "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'secrets' AND pns_id_fk = %s;"
-  "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('DB_PASS', 'supersecret', %s);"
-  "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'apis' AND pns_id_fk = %s;"
-  "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', %s);"
-);
-
-################################################################################
-#
-#  __db_query_sample # NOT CURRENTLY USED
-#
-################################################################################
-# Description: Executes a sample query from the __samples array, formatting
-#              arguments for SQL safety.
-# Arguments:
-#   1: idx (integer) - Index of the query template in __samples.
-#   @: args (strings) - Arguments to format into the query.
-# Returns: Output of the query.
-# Local Variables: idx, qry_template, formatted_query, quoted_args, arg
-__db_query_sample(){
-  local idx="$1";
-  local qry_template="${__samples[idx]}";
-  shift; # Remove idx, now $@ are the arguments for the template
-  local formatted_query;
-  # Properly quote string arguments for SQL insertion
-  local -a quoted_args=();
-  for arg in "$@"; do
-    # Check if the argument is a number (integer or float)
-    if [[ "$arg" =~ ^[+-]?[0-9]+([.][0-9]+)?$ ]]; then
-      quoted_args+=("$arg");
-    else
-      # Escape single quotes within the string and wrap in single quotes
-      # This is the corrected line:
-      quoted_args+=("'${arg//\'/\'\'}'");
-    fi
-  done
-
-  # Use printf -v to safely format the query with quoted arguments
-  # This avoids direct shell string concatenation issues
-  # and ensures proper quoting for SQL.
-  printf -v formatted_query "${qry_template}" "${quoted_args[@]}";
-  __db_query "${formatted_query}";
 }
 
 ################################################################################
@@ -2387,39 +1985,16 @@ __db_query_sample(){
 #
 ################################################################################
 # Description: Inserts sample data into the database for development and testing.
-# Returns: 0 on success.
-# Local Variables: myapp_id, secrets_id, apis_id, sql_query
-
-  __sample_queries(){
+__sample_queries(){
     info "[+] Setting up Sample Queries";
-    
-    local myapp_id secrets_id apis_id sql_query;
-
-    # THE FIX: Use the robust helper to create the project and its MAIN keystore.
     ___new_project "myapp";
-    
-    # Get the ID for the newly created project
-    printf -v sql_query "%s" "SELECT pns_id FROM project_ns WHERE pns_name = 'myapp';"
-    myapp_id=$(__db_query "${sql_query}" );
-
-    # Insert additional keystores
-    printf -v sql_query "%s" "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('secrets', ${myapp_id});"
-    __db_query "${sql_query}";
-    printf -v sql_query "%s" "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('apis', ${myapp_id});"
-    __db_query "${sql_query}";
-
-    # Select secrets_id and insert DB_PASS
-    printf -v sql_query "%s" "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'secrets' AND pns_id_fk = ${myapp_id};"
-    secrets_id=$(__db_query "${sql_query}" );
-    printf -v sql_query "%s" "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('DB_PASS', 'supersecret', ${secrets_id});"
-    __db_query "${sql_query}";
-
-    # Select apis_id and insert GOOGLE_API_KEY
-    printf -v sql_query "%s" "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'apis' AND pns_id_fk = ${myapp_id};"
-    apis_id=$(__db_query "${sql_query}" );
-    printf -v sql_query "%s" "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', ${apis_id});"
-    __db_query "${sql_query}";
-
+    local myapp_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'myapp';" );
+    __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('secrets', ${myapp_id});";
+    __db_query "INSERT OR IGNORE INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('apis', ${myapp_id});";
+    local secrets_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'secrets' AND pns_id_fk = ${myapp_id};" );
+    __db_query "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('DB_PASS', 'supersecret', ${secrets_id});";
+    local apis_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = 'apis' AND pns_id_fk = ${myapp_id};" );
+    __db_query "INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUES ('GOOGLE_API_KEY', 'key-for-google', ${apis_id});";
     noop "Sample queries complete.";
     return 0;
   }
@@ -2430,95 +2005,21 @@ __db_query_sample(){
 #
 ################################################################################
 # Description: Sets up a developer environment with a clean install and sample data.
-# Arguments:
-#   1: install_skip (string, optional) - If "skip", bypasses the clean install.
-# Returns: 0 on success.
-# Local Variables: install_skip
 do_dev_setup(){
   local install_skip="$1";
-
-  # Ensure THIS_DB is set before any DB operations
   select_db;
-
-  # Set SOFT_RESET to 0 (true) for dev_setup to prevent full reset of binaries
-  # But allow full DB reset if not skipped.
-  local old_soft_reset="${SOFT_RESET}";
-  SOFT_RESET=0; 
-
   if [[ "${install_skip}" != "skip" ]]; then
     __clean_install;
   else
     log "Skipping clean install due to 'skip' argument.";
-    # If skipping clean install, ensure existing DB is clean for samples
     __backup_db || return 1;
-    __db_query "DELETE FROM project_ns;" || error "Failed to clear existing data.";
-    __db_query "DELETE FROM keyval_ns;" || error "Failed to clear existing data.";
     __db_query "DELETE FROM vars;" || error "Failed to clear existing data.";
-    __setup_sql; # Re-initialize schema including GLOBAL and MAIN
+    __db_query "DELETE FROM keyval_ns;" || error "Failed to clear existing data.";
+    __db_query "DELETE FROM project_ns;" || error "Failed to clear existing data.";
+    __setup_sql;
   fi
-
   __sample_queries;
-
-  log "Creating example .env files for import tests...";
-  
-  # Test file for the default (public scope)
-  cat << EOF > "${HOME}/bookdb_test_public.env";
-# By default, only public keys should be imported.
-_BOOKDB_CHAIN_=@myapp.VAR.apis
-
-# Public keys
-export SERVICE_A_URL=https://service-a.com/api
-SERVICE_B_URL=https://service-b.com/api
-
-# Ignored private key
-_PRIVATE_KEY=should_be_ignored
-EOF
-
-  # Test file for importing ONLY private keys
-  cat << EOF > "${HOME}/bookdb_test_private.env";
-_BOOKDB_CHAIN_=@myapp.VAR.apis
-_BOOKDB_FILTER_=scope=private
-
-# Public keys (should be ignored)
-PUBLIC_KEY=should_be_ignored
-
-# Private keys (should be imported)
-_SECRET_TOKEN=token-12345
-_API_USER=private_user
-EOF
-
-  # Test file for importing ALL keys
-  cat << EOF > "${HOME}/bookdb_test_all.env";
-_BOOKDB_CHAIN_=@myapp.VAR.apis
-_BOOKDB_FILTER_=scope=all
-
-# Public keys
-PUBLIC_KEY_1=public1
-PUBLIC_KEY_2=public2
-
-# Private keys
-_PRIVATE_KEY_1=private1
-_PRIVATE_KEY_2=private2
-EOF
-
-  # Test file for the 'addonly' write mode
-  cat << EOF > "${HOME}/bookdb_test_addonly.env";
-# This file tests the addonly write mode.
-_BOOKDB_CHAIN_=@myapp.VAR.apis
-_BOOKDB_WRITEMODE_=addonly
-
-# This key already exists, so it should be SKIPPED.
-GOOGLE_API_KEY=this_value_should_be_ignored
-
-# This is a new key, so it should be ADDED.
-NEW_SERVICE_KEY=this_value_should_be_added
-EOF
-
-  # Restore original SOFT_RESET setting
-  SOFT_RESET="${old_soft_reset}";
-
   okay "Developer setup complete. You can now use 'bookdb' with sample data.";
-  # Resolve context after setup to ensure it reflects the new data
   __resolve_context || error "Failed to resolve context after dev setup.";
   return 0;
 }
@@ -2534,62 +2035,54 @@ EOF
 #
 ################################################################################
 # Description: Displays detailed help text for the bookdb command.
-# Returns: 1 (always exits after displaying usage).
 usage(){
   cat << EOF >&2
-Usage: bookdb <command> [args...] [flags...] [<context-chain>]
+Usage: bookdb <command> [args...] [flags...] [<context>]
 
-A shell-based key-value store.
+A shell-based, context-aware key-value store.
+
+Context Syntax:
+  base@proj.VAR.keys       - Use context and persist it (base and proj/keys).
+  base%proj.VAR.keys       - Use context for one command only (read-only).
+  @proj.VAR.keys           - Use context in current base and persist it.
 
 Core Commands:
   status                   - Display a dashboard of the system's state.
   cursor                   - Print the current active cursor chain.
-  ls [all|project|vars|keys] - List all data, projects, keystores, or keys in context.
+  ls [all|bases|proj|vars|keys] - List data. Default is 'keys'.
   find <PATTERN>           - Find a key across all projects/keystores.
   getv <KEY>               - Get the value of a variable.
   setv <KEY=VALUE>         - Create or update a variable.
   delv <KEY>               - Delete a variable.
-  pub <@chain.key|KEY=VAL> <file>  - Publish a single key-value pair to a file.
-  unpub <@chain.key|KEY> <file>    - Remove a published key-value pair from a file.
   incv <KEY> [amount]      - Increment a numerical value (default: 1).
   decv <KEY> [amount]      - Decrement a numerical value (default: 1).
-  new <project|keyval> --ns <name>
-                           - Create a new project or key-value namespace.
-  del <project|keyval> --ns <name>
-                           - Delete a project or key-value namespace.
+  
+Management Commands:
+  new <base|project|keyval> <name> - Create a new base, project, or keystore.
+  del <project|keyval> <name>    - Delete a project or keystore.
+  base                     - Show the current active base.
+  select <base_name>       - Set the persistent active base.
+  rebase <base_name>       - DANGER: Deletes and recreates a base.
+  unbase <base_name>       - DANGER: Deletes a base.
 
 Admin & I/O Commands:
-  install                  - Create or verify a bookdb installation.
-  reset                    - DELETE ALL DATA and artifacts.
-  backup                   - Create a full, versioned backup in \$HOME.
-  dev_setup [skip]         - Create a standard set of test data. 'skip' bypasses reinstall.
+  install                  - Install or update the bookdb application.
+  reset                    - DANGER: Deletes all bookdb data and artifacts.
+  backup [--all]           - Create a backup. --all includes all bases.
   export keystore          - Export current keystore to a .env file.
   import <file.env>        - Import keys from a .env file into a context.
-  migrate                  - Export all keystores to a backup directory.
-  tables                   - List all tables in the database.
-  tdump <NAME>             - Dump the contents of a specific table.
-  sanity                   - Perform a quick check of bookdb installation state.
+  migrate [--all]          - Export all keystores to a backup directory.
+  sanity                   - Perform a quick check of the installation state.
+  tables                   - (dev) List all tables in the database.
+  tdump <NAME>             - (dev) Dump the contents of a table.
+  dev_setup [skip]         - (dev) Create a standard set of test data.
 
 Flags:
   -y, --yes                - Auto-confirm 'yes' to all prompts.
   -p, --projdb <name>      - Set project namespace for this command.
   -k, --keydb <name>       - Set key-value namespace for this command.
-  --printer stdoutt        - (TEST ONLY) Redirects human-readable messages to stdout for capture.
-                             Only active when TEST_MODE is explicitly set to 0.
-
-Context Prefixes:
-  @...                     - Use context and persist it to the cursor.
-  %...                     - Use context for one command only (read-only).
-                           (MVP behaves like '@' for persistence for now.)
-
-Scripting & Automation Examples:
-  # Mass import/restore all .env files from a migration directory:
-  for file in bookdb_fullbak_*/; do ./bookdb import "\$file" -y; done
-
-  # Export all keystores from the 'GLOBAL' project only:
-  for ks in \$(./bookdb ls vars @GLOBAL.VAR.MAIN); do
-    ./bookdb export keystore @GLOBAL.VAR.\$ks
-  done
+  --all                    - Apply command to all bases (backup, migrate).
+  --printer stdoutt        - (TEST ONLY) Redirects human-readable messages to stdout.
 
 EOF
   exit 1;
@@ -2601,65 +2094,92 @@ EOF
 #
 ################################################################################
 # Description: Parses command-line arguments and sets opt_* state variables.
-# Returns: 0 on success, 1 on invalid option.
-# Local Variables: local_args, last_arg_idx, last_arg
 options(){
-  local local_args=();
-  opt_quiet=; opt_projdb=; opt_keydb=; opt_context_chain=; opt_ns=; opt_yes=; opt_sanity=;
-  opt_printer_test=; # ADDED: opt_printer_test
-  info "$1 $2"
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      (-q|--quiet) opt_quiet=1; shift; ;;
-      (-y|--yes) opt_yes=1; shift; ;;
-      (-p|--projdb) opt_projdb="$2"; shift 2; ;;
-      (-k|--keydb) opt_keydb="$2"; shift 2; ;;
-      (-S|--sanity) opt_sanity="0"; ;;
-      (--ns) opt_ns="$2"; shift 2; ;;
-      (--pr*) 
-        if [[ "$2" == "stdoutt" ]]; then 
-          opt_printer_test=1; # ADDED: --printer flag handling
-          shift 2;
-        else
-          error "Invalid value for --printer: $2. Must be 'stdoutt' when TEST_MODE is enabled (0)."; usage;
-        fi
-        ;;
-      (--) shift; local_args+=("$@"); break; ;;
-      (-*) error "Unknown option: $1"; usage; ;;
-      (*) local_args+=("$1"); shift; ;;
-    esac
-  done
-  local last_arg_idx=$((${#local_args[@]} - 1));
-  if [[ ${last_arg_idx} -ge 0 ]]; then
-    local last_arg="${local_args[${last_arg_idx}]}";
-    if is_chain "${last_arg}"; then
-      opt_context_chain="${last_arg}";
-      unset 'local_args[${last_arg_idx}]';
+  local -a remaining_args=();
+  opt_quiet=; opt_projdb=; opt_keydb=; opt_ns=; opt_yes=; opt_all=;
+  opt_base_override=; opt_context_chain=; opt_chain_mode=;
+  opt_printer_test=;
+
+  for arg in "$@"; do
+    # Check if the argument contains a context separator
+    if [[ "$arg" == *@* ]] || [[ "$arg" == *%* ]]; then
+      if [[ "$arg" == *@* ]]; then
+        opt_chain_mode="@";
+        opt_base_override="${arg%%@*}";
+        opt_context_chain="${arg#*@}";
+      else
+        opt_chain_mode="%";
+        opt_base_override="${arg%%%*}";
+        opt_context_chain="${arg#*%}";
+      fi
+      # If the base part is empty, it's a context-only chain (e.g., @proj.VAR.keys)
+      if [[ -z "${opt_base_override}" ]]; then
+        opt_base_override=; # Explicitly nullify
+      fi
+      # The context chain part can be empty (e.g., mybase@)
+      if [[ "${opt_context_chain}" == "${arg}" ]]; then
+        opt_context_chain=
+      fi
+    else
+      # If not a context chain, add to remaining args for now
+      remaining_args+=("$arg");
     fi
-  fi
-  ARGS=("${local_args[@]}");
+  done
+  
+  # Reset args array and process flags from the remaining args
+  local -a final_args=();
+  local -a processing_args=("${remaining_args[@]}");
+  remaining_args=(); # Clear it for reuse
+  
+  while [ ${#processing_args[@]} -gt 0 ]; do
+    local arg="${processing_args[0]}";
+    shift_amt=1;
+    case "$arg" in
+      (-a|--all) opt_all=1; ;;
+      (-q|--quiet) opt_quiet=1; ;;
+      (-y|--yes) opt_yes=1; ;;
+      (-p|--projdb) opt_projdb="${processing_args[1]}"; shift_amt=2; ;;
+      (-k|--keydb) opt_keydb="${processing_args[1]}"; shift_amt=2; ;;
+      (--ns) opt_ns="${processing_args[1]}"; shift_amt=2; ;;
+      (--pr*) 
+        if [[ "${processing_args[1]}" == "stdoutt" ]]; then 
+          opt_printer_test=1; shift_amt=2;
+        else
+          error "Invalid value for --printer: ${processing_args[1]}"; usage;
+        fi ;;
+      (--) shift_amt=$((${#processing_args[@]})); final_args+=("${processing_args[@]:1}"); ;;
+      (-*) error "Unknown option: $arg"; usage; ;;
+      (*) final_args+=("$arg"); ;;
+    esac
+    processing_args=("${processing_args[@]:$shift_amt}");
+  done
+
+  ARGS=("${final_args[@]}");
   return 0;
 }
+
 ################################################################################
 #
 #  dispatch
 #
 ################################################################################
 # Description: Routes commands to their corresponding functions.
-# Returns: Exit status of the executed command.
-# Local Variables: ret, cmd
 dispatch(){
   local ret=1;
   local cmd="${ARGS[0]}";
-  if __is_empty "$cmd"; then usage; fi # No command provided
+  if __is_empty "$cmd"; then usage; fi
   case "$cmd" in
     (st|status) do_status; ret=$?; ;;
     (c|cursor) do_cursor; ret=$?; ;;
+    (select) do_select_base "${ARGS[1]}"; ret=$?; ;;
+    (base) do_current_base; ret=$?; ;;
+    (rebase) do_rebase "${ARGS[1]}"; ret=$?; ;;
+    (unbase) do_unbase "${ARGS[1]}"; ret=$?; ;;
     (noop) noop "${ARGS[1]}";exit 0; ;;
     (export) do_export "${ARGS[1]}"; ret=$?; ;;
     (import) do_import "${ARGS[1]}"; ret=$?; ;;
     (migrate) do_migrate; ret=$?; ;;
-    (backup) do_backup; ret=$?; ;; # THE FIX: ADDED backup here
+    (backup) do_backup; ret=$?; ;;
     (getv) do_getv "${ARGS[1]}"; ret=$?; ;;
     (setv) do_setv "${ARGS[1]}"; ret=$?; ;;
     (delv) do_delv "${ARGS[1]}"; ret=$?; ;;
@@ -2676,8 +2196,7 @@ dispatch(){
     (reset) do_reset; ret=$?; ;;
     (install) do_install; ret=$?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; ret=$?; ;;
-    (backup) do_backup; ret=$?; ;;
-    (sanity) do_sanity_check; ret=$?; ;; # New command for sanity checks
+    (sanity) do_sanity_check; ret=$?; ;;
     (*) error "Unknown command: ${cmd}"; usage; ;;
   esac
   return "${ret}";
@@ -2688,69 +2207,41 @@ dispatch(){
 #  main
 #
 ################################################################################
-# Description: Primary entrypoint for the bookdb script, orchestrating its lifecycle.
-# Arguments:
-#   @: args (strings) - All command-line arguments.
-# Returns: Exit status of the executed command.
+# Description: Primary entrypoint for the bookdb script.
 main(){
-  # STEP 1: PARSE FIRST, ALWAYS.
-  # This ensures opt_* variables are available for all subsequent logic.
   options "$@";
 
-  # Set global quiet mode if the flag was passed.
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
-  
-  dev "Dev Mode Enabled. Safety Guards Disabled!";
-  trace "Args:: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ] 6[ $6 ]";
+  if is_dev; then dev "Dev Mode Enabled. Safety Guards Disabled!"; fi
+  trace "Args: ${ARGS[*]}";
 
-  # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
-  # These commands must run before any state (like DB existence) is assumed.
   local cmd_pre_state="${ARGS[0]}";
   case "$cmd_pre_state" in
     (rc) dev_rc; exit 0; ;;
     (help|usage) usage; exit 1; ;;
     (install) do_install; exit $?; ;;
-    (update) do_update; exit $?; ;;
     (reset) do_reset; exit $?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
   esac
 
-  # If we are here, the command was not a pre-state shortcut.
-  # Now, we can safely assume the application should be installed.
-
-  # Bootstrap and select the database (pre-context resolution)
   bootstrap;
   select_db;
 
-  # Check if the database exists. If not, prompt user to install.
   if [[ ! -f "${THIS_DB}" ]]; then
     if is_dev; then
       log "DEV_MODE: Auto-installing on first run.";
       do_install;
       if [[ $? -ne 0 ]]; then fatal "Initial auto-installation failed in DEV_MODE."; fi
     else
-      local confirm_install;
-      printf "BookDB appears to be uninstalled.\n" >&2;
-      printf "Would you like to run the installer now? [y/N]: " >&2;
-      read -r confirm_install;
-      if [[ "${confirm_install}" == "y" || "${confirm_install}" == "Y" ]]; then
-        do_install; exit $?;
-      else
-        log "Installation cancelled by user. Exiting."; exit 1;
-      fi
+      printf "BookDB appears to be uninstalled. Run 'bookdb install' to set it up.\n" >&2;
+      exit 1;
     fi
   fi
 
-  # STEP 3: RESOLVE CONTEXT.
-  # This is now called *after* options are parsed and *before* dispatch.
-  # It will correctly use `opt_context_chain` if provided on the command line.
   __resolve_context || exit 1;
 
-  # STEP 4: DISPATCH.
-  # Execute the command with the now-correct context.
   dispatch;
-  local ret=$?;
-  return "${ret}";
+  return $?;
 }
 #
 # --- Execution Entry Point ---
