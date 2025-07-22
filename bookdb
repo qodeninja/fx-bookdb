@@ -28,7 +28,7 @@
 
 # Define some colors for clear output headers
   readonly  red2=$'\x1B[38;5;197m';
-  readonly  red=$'\x1B[31m';
+  readonly  red=$'\x1B[38;5;009';
   readonly  orange=$'\x1B[38;5;214m';
   readonly  yellow=$'\x1B[33m';  
 
@@ -125,7 +125,7 @@ line(){ stderr "$LINE"; }
   # Flag to block deep install or reset functions. Preserve Database
   SOFT_RESET=1;
 
-  TEST_MODE=${TEST_MODE:-1};
+  TEST_MODE=${TEST_MODE:-};
 
   #magic "Project ? ${BOOK_PROJECT_HOME}";
   #magic "Self ? ${BOOK_PATH} using 0 ";
@@ -428,7 +428,7 @@ bootstrap(){
     readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
   fi
   if is_dev; then
-    magic "Bookdb started from $BOOK_PATH";
+    trace "Bookdb started from $BOOK_PATH";
     [ -n "$TEST_MODE" ] && magic "Test Mode is enabled. <stdoutt> is active with --pr flag.";
   fi
   return "$ret";
@@ -447,13 +447,14 @@ bootstrap(){
 # Local Variables: other_db
 select_db(){
   local other_db="$1";
+
   if [ -n "$other_db" ] && [ -f "$other_db" ]; then
     THIS_DB="$other_db";
-  elif [ "$TEST_MODE" -eq 0 ]; then
-    THIS_DB="$BOOK_TEST_DB";
-  else
-    THIS_DB="$BOOK_DB";
+  elif [ ! -z "$TEST_MODE" ]; then
+    [ "$TEST_MODE" -eq 0 ] && THIS_DB="$BOOK_TEST_DB";
   fi
+
+  [ -z "$THIS_DB" ] && THIS_DB="$BOOK_DB";
   return 0;
 }
 
@@ -727,8 +728,15 @@ __confirm_action(){
 # Returns: 0 on success, 1 on failure.
 # Local Variables: ret, T_pns_name, T_kvns_name, persist_needed, clean_chain,
 #                  context_type, pns_name_sql, kvns_name_sql, T_pns_id, T_kvns_id
+
+__correct_context(){
+  local def_pns_name="GLOBAL";
+  local def_kvns_name="MAIN";
+  #__persist_cursor;
+}
+
 __resolve_context(){
-  info "Attempting to resolve context...";
+  trace "Attempting to resolve context...";
   local ret=1;
   local T_pns_name=;
   local T_kvns_name=;
@@ -767,8 +775,10 @@ __resolve_context(){
       T_kvns_name="MAIN";
     fi
   fi
+
+
   
-  info "Context proposal: PNS: '${T_pns_name}' KVNS: '${T_kvns_name}'";
+  trace "Context proposal: PNS: '${T_pns_name}' KVNS: '${T_kvns_name}'";
 
   # Ensure names are not empty after all attempts
   if __is_empty "${T_pns_name}" || __is_empty "${T_kvns_name}"; then
@@ -783,6 +793,9 @@ __resolve_context(){
   # Query for PNS ID
   T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';" | tr -d '\n');
   if [[ -z "${T_pns_id}" ]]; then
+
+    # todo reset to default chain context 
+
     error "Project Namespace not found: '${T_pns_name}'.";
     return 1;
   fi
@@ -791,6 +804,10 @@ __resolve_context(){
   # Query for KVNS ID within the resolved PNS
   T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};" | tr -d '\n');
   if [[ -z "${T_kvns_id}" ]]; then
+
+    # todo reset to default chain context 
+    
+
     error "Key-Value Namespace not found: '${T_kvns_name}' in project '${T_pns_name}'.";
     return 1;
   fi
@@ -806,7 +823,7 @@ __resolve_context(){
     __persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
   fi
 
-  info "Context resolved: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
+  trace "Context resolved: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
   opt_context_chain="${old_opt_chain}"; # Restore original opt_context_chain
   return 0;
 }
@@ -1211,7 +1228,7 @@ do_ls(){
       ;;
     (keys)
       # This provides the old default behavior of listing keys in the current context
-      log "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
+      trace "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
       local sql="SELECT var_key FROM vars WHERE kvns_id_fk = ${BOOK_KVNS_ID} ORDER BY var_key;";
       __db_query "${sql}";
       ret=$?;
@@ -1991,7 +2008,7 @@ __setup_sql(){
 
   # Enable WAL mode for better concurrency
   #__db_query "PRAGMA journal_mode=WAL;";
-  __db_query "PRAGMA journal_mode=WAL;" >/dev/null || fatal "Failed to set WAL journal mode.";
+  __db_query "PRAGMA journal_mode=WAL;" 1>/dev/null || fatal "Failed to set WAL journal mode.";
   
   # Insert or ignore default 'GLOBAL' project namespace
   __db_query "INSERT OR IGNORE INTO project_ns (pns_name) VALUES ('GLOBAL');" || fatal "Failed to create default 'GLOBAL' project.";
@@ -2129,65 +2146,123 @@ do_sanity_check(){
 # Description: Installs or verifies the bookdb application.
 # Returns: 0 on success, 1 on failure.
 # Local Variables: ret, profile_file, script_path, _cp_path, _ln_path
-do_install(){
-  local ret=1;
-  local profile_file;
-  profile_file=$(__find_shell_profile);
 
-  __setup_confirm "$profile_file" || return 1;
-  __setup_dirs || return 1;
+  do_update(){
+    local ret=1 mode;
 
-  _cp_path="${BOOK_LIB}/${BOOK_PREF}";
-  _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    __setup_dirs || return 1;
 
-  # Resolve the actual path of the currently executing script
-  local script_path;
-  script_path=$(readlink -f "${APP_BOOKDB}");
-  if [[ ! -f "${script_path}" ]]; then
-      fatal "Failed to resolve script path: ${APP_BOOKDB}. Exiting.";
-  fi
+    if [ -n "$BOOK_PROJECT_HOME" ] && [ -d "$BOOK_PROJECT_HOME" ]; then
 
-  # Copy and permission the script (cp before ln -s)
-  info "Installing script to '${_cp_path}'...";
+      local script_path;
+      script_path=$(readlink -f "${BOOK_PROJECT_HOME}");
 
-  [ -f "${_cp_path}" ] && {
-    warn "Found older bookdb version. Updating.";
-    rm -f "${_cp_path}"; #removing old one...
-     
+      info "path is $script_path";
+      if [[ "$script_path" =~ ^.*repo.*$ ]]; then
+        mode="Your cool repo";
+      elif [[ ! "$script_path" =~ ^.*lib.*$ ]]; then
+
+        mode="Some other custom place";
+      else
+        noop; # is this getting lib again??
+      fi
+
+    fi
+
+    if ! is_defined "$script_path"; then
+      warn "script path not defined";
+      script_path=$(readlink -f "${APP_BOOKDB}");
+    fi
+
+    script_path="${script_path}/${BOOK_PREF}";
+
+    if [ ! -f "${script_path}" ]; then
+      error "Failed to resolve script path: ${script_path}. ($APP_BOOKDB) Exiting.";
+      exit 1
+    fi
+
+    _cp_path="${BOOK_LIB}/${BOOK_PREF}";
+
+
+
+    is_file "${_cp_path}" && {
+      warn "Found older bookdb version. Updating.";
+      rm -f "${_cp_path}"; #removing old one...
+      mode="Update";
+    }
+
+    info "$mode bookdb";
+    cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script!  ${_cp_path}.";
+    chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
+
+    okay "you did it!";
+    echo "$_cp_path";
   }
 
-  cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
-  chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
 
-  # Create symlink
-  if [[ ! -e "${_ln_path}" ]]; then # Check if symlink/file exists at all
-    info "Creating symlink from '${_cp_path}' to '${_ln_path}'...";
-    ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory: ${_ln_path}.";
-  elif [[ -L "${_ln_path}" && "$(readlink "${_ln_path}")" == "${_cp_path}" ]]; then
-    warn "Bin symlink already exists and is correct at '${_ln_path}'.";
-  else
-    warn "A file or incorrect symlink already exists at '${_ln_path}'. Attempting to replace.";
-    rm -f "${_ln_path}" || error "Failed to remove existing file/symlink at '${_ln_path}'.";
-    ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory after cleanup: ${_ln_path}.";
-  fi
+  do_install(){
+    local ret=1;
+    local profile_file;
+    profile_file=$(__find_shell_profile);
 
-  _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file: ${BOOK_RC}.";
-  okay "Bookdb RC file created at '${BOOK_RC}'.";
+    __setup_confirm "$profile_file" || return 1;
 
-  # Link the RC file to the user's main shell profile
-  __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration" || return 1;
 
-  __setup_sql || return 1; # Setup the database schema
+    #_cp_path="${BOOK_LIB}/${BOOK_PREF}";
+    #_ln_path="${BOOK_BIN}/${BOOK_PREF}";
 
-  if is_user; then
-    printf "\n[OKAY] Installation complete!\n\n" >&2;
-    printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
-  else
-    dev "Dev mode installation complete.";
-  fi
-  
-  return 0;
-}
+    # Resolve the actual path of the currently executing script
+    # local script_path;
+    # script_path=$(readlink -f "${APP_BOOKDB}");
+
+    # if [[ ! -f "${script_path}" ]]; then
+    #     fatal "Failed to resolve script path: ${APP_BOOKDB}. Exiting.";
+    # fi
+
+    # Copy and permission the script (cp before ln -s)
+
+    # [ -f "${_cp_path}" ] && {
+    #   warn "Found older bookdb version. Updating.";
+    #   rm -f "${_cp_path}"; #removing old one...
+    
+    # }
+
+
+    #cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library directory: ${_cp_path}.";
+    #chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
+    _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+    _cp_path=$(do_update);
+
+
+    # Create symlink
+    if [[ ! -e "${_ln_path}" ]]; then # Check if symlink/file exists at all
+      info "Creating symlink from '${_cp_path}' to '${_ln_path}'...";
+      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory: ${_ln_path}.";
+    elif [[ -L "${_ln_path}" && "$(readlink "${_ln_path}")" == "${_cp_path}" ]]; then
+      warn "Bin symlink already exists and is correct at '${_ln_path}'.";
+    else
+      warn "A file or incorrect symlink already exists at '${_ln_path}'. Attempting to replace.";
+      rm -f "${_ln_path}" || error "Failed to remove existing file/symlink at '${_ln_path}'.";
+      ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink in bin directory after cleanup: ${_ln_path}.";
+    fi
+
+    _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file: ${BOOK_RC}.";
+    okay "Bookdb RC file created at '${BOOK_RC}'.";
+
+    # Link the RC file to the user's main shell profile
+    __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration" || return 1;
+
+    __setup_sql || return 1; # Setup the database schema
+
+    if is_user; then
+      printf "\n[OKAY] Installation complete!\n\n" >&2;
+      printf "Please restart your shell or run 'source %s' to begin using the 'bookdb' command.\n" "${profile_file}" >&2;
+    else
+      dev "Dev mode installation complete.";
+    fi
+    
+    return 0;
+  }
 
 ################################################################################
 #
@@ -2614,10 +2689,11 @@ main(){
   # STEP 1: PARSE FIRST, ALWAYS.
   # This ensures opt_* variables are available for all subsequent logic.
   options "$@";
-
+  dev "$1 $2 $3 $4 $5 $6";
   # Set global quiet mode if the flag was passed.
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   
+  dev "Dev Mode Enabled. Safety Guards Disabled!";
   # STEP 2: HANDLE TRUE SHORTCUTS & PRE-STATE COMMANDS.
   # These commands must run before any state (like DB existence) is assumed.
   local cmd_pre_state="${ARGS[0]}";
@@ -2625,6 +2701,7 @@ main(){
     (rc) dev_rc; exit 0; ;;
     (help|usage) usage; exit 1; ;;
     (install) do_install; exit $?; ;;
+    (update) do_update; exit $?; ;;
     (reset) do_reset; exit $?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
   esac
