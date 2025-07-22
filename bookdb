@@ -178,7 +178,10 @@ stdoutt(){
   return 0;
 }
 
-line(){ stderr "$LINE"; }
+line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
+
+COUNTER=".count_bookdb";
+counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
 
 bar(){
   local len="${1:-54}"; local char="${2:O}";       # Default to '-' if no character is provided
@@ -252,7 +255,7 @@ trace(){
 
 debug(){ is_dev && stderr "${cyan}${*}" "force"; }
 
-dev(){ is_dev && stderr "${cyan}>>> [${blue}${FUNCNAME[1]}${cyan}]\n\t└┄┄ ${*} " "force"; }
+dev(){ is_dev && stderr "\n${cyan}>>  [${deep}${FUNCNAME[1]}${cyan}]\n\t└┄┄ ${*} " "force"; }
 
 devbar(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${LINE}" "force"; }
 devlog(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${1}" "force"; }
@@ -3005,8 +3008,11 @@ dispatch(){
 # Description: Primary entrypoint for the bookdb script.
 main(){
   local ret;
+  local run_count=$(counter);
+  line "$run_count";
   identify;
   options "$@";
+
 
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   if is_dev; then  imp "Dev Mode Enabled. Safety Guards Disabled!"; fi
