@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #
+# version 1.7
 # bookdb - Final MVP (Phase 5) with Full CRUD Functionality
 # A shell-based, context-aware key-value store built on sqlite3.
 #
@@ -174,6 +175,7 @@ stderr(){
 #   1: msg (string) - The message to print.
 stdoutt(){
   local msg="$1";
+
   printf "%b" "${msg}${xx}\n";
   return 0;
 }
@@ -596,7 +598,7 @@ has_keystore(){
 #   1: key_name (string) - The name of the key to check for.
 # Returns: 0 if the key exists, 1 otherwise.
 has_key(){
-  local key_name="$1";
+  local key_name="$1" key_id;
   if __is_empty "${key_name}"; then return 1; fi
   
   local key_value;
@@ -611,7 +613,7 @@ has_key(){
   elif [[ $? -eq 0 && -z "$key_value" ]]; then
       # This is ambiguous. Does an empty value mean it exists? For `has_key`, yes.
       # To be certain, we should query for the ID.
-      local key_id=$(__db_query "SELECT var_id FROM vars WHERE var_key = '${key_name}' AND kvns_id_fk = ${BOOK_KVNS_ID};");
+      key_id=$(__db_query "SELECT var_id FROM vars WHERE var_key = '${key_name}' AND kvns_id_fk = ${BOOK_KVNS_ID};");
       if __is_empty "${key_id}"; then return 1; else return 0; fi
   fi
   return 1; # Query failed for some reason
@@ -798,8 +800,8 @@ __sed_in_place(){
       return 1;
   fi
 
-  tmp_file=$(mktemp);
-  if [[ $? -ne 0 ]]; then
+  tmp_file=$(mktemp);ret=$?;
+  if [[ "$ret" -ne 0 ]]; then
       error "Failed to create temp file for in-place edit.";
       return 1;
   fi
@@ -867,12 +869,14 @@ __get_base_path(){
 # Description: Safely lists the names of all existing databases.
 # Risk R-01: Must use a safe globbing loop, not ls.
 _list_bases(){
+
     for db_file in "${BOOK_DATA}"/*.sqlite; do
       if [[ -f "$db_file" ]]; then # Check if glob found a file
         basename "${db_file%.sqlite}";
       fi
     done
     return 0;
+
 }
 
 ################################################################################
@@ -1106,118 +1110,6 @@ __confirm_action(){
   fi
 }
 
-################################################################################
-#
-#  __resolve_context
-#
-################################################################################
-# Description: Resolves the active context based on command-line overrides or
-#              persisted cursors, enforcing Context Atomicity.
-# __resolve_context_orig(){
-#   trace "Attempting to resolve context...";
-#   local ret=1;
-#   local T_base_name=;
-#   local T_pns_name=;
-#   local T_kvns_name=;
-#   local persist_base_needed=0;
-#   local persist_context_needed=0;
-  
-#   # 1. Handle base override from `options()`
-#   if [[ -n "${opt_base_override}" ]]; then
-#       T_base_name="${opt_base_override}";
-#       if [[ "${opt_chain_mode}" == "@" ]]; then
-#         persist_base_needed=1;
-#         persist_context_needed=1; # Persist both if base is being changed with @
-#       fi
-
-#       # Validate that base_name exists
-#       local found_base=0;
-#       for base in $(_list_bases); do
-#         [[ "${base}" == "${T_base_name}" ]] && { found_base=1; break; }
-#       done
-#       if [[ "${found_base}" -eq 0 ]]; then
-#         error "Base '${T_base_name}' not found.";
-#         return 1;
-#       fi
-#       # Set THIS_DB and THIS_BASE_NAME for this command
-#       THIS_BASE_NAME="${T_base_name}";
-#       THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
-#   else
-#       # If no base override, rely on the active base already set by select_db()
-#       T_base_name="${THIS_BASE_NAME}";
-#   fi
-
-#   # 2. Handle context chain from `options()` or --flags
-#   if [[ -n "${opt_context_chain}" ]]; then
-#     local chain_parts=($(echo "${opt_context_chain}" | cut -d'.' -f1,3 --output-delimiter=' '));
-#     T_pns_name="${chain_parts[0]}";
-#     T_kvns_name="${chain_parts[1]}";
-#     if [[ -z "${chain_parts[1]}" ]]; then # Handle case like `base@project` -> reset to main
-#         T_kvns_name="MAIN";
-#     fi
-#   elif [[ -n "${opt_projdb}" ]]; then # Handle --projdb flag
-#     persist_context_needed=1;
-#     T_pns_name="${opt_projdb}";
-#     T_kvns_name="MAIN"; # Context Atomicity: reset keystore to main
-#   elif [[ -n "${opt_keydb}" && -z "${opt_projdb}" ]]; then # Handle --keydb flag without --projdb
-#     persist_context_needed=1;
-#     T_pns_name="${BOOK_PNS_NAME}"; # Use current project
-#     T_kvns_name="${opt_keydb}";
-#   fi
-  
-#   # 3. If no context specified via flags/chain, use persisted cursor
-#   if __is_empty "${T_pns_name}" && __is_empty "${T_kvns_name}"; then
-#     if [[ -f "${BOOK_CONTEXT_CURSOR}" ]]; then
-#       T_pns_name=$(sed -n '1p' "${BOOK_CONTEXT_CURSOR}");
-#       T_kvns_name=$(sed -n '2p' "${BOOK_CONTEXT_CURSOR}");
-#     else # Default to GLOBAL.MAIN if all else fails
-#       T_pns_name="GLOBAL";
-#       T_kvns_name="MAIN";
-#     fi
-#   fi
-
-#   trace "Context proposal: Base: '${T_base_name}' PNS: '${T_pns_name}' KVNS: '${T_kvns_name}'";
-
-#   # 4. Validate and commit context
-#   if __is_empty "${T_pns_name}" || __is_empty "${T_kvns_name}"; then
-#     error "Failed to resolve a valid Project or Key-Value Namespace.";
-#     return 1;
-#   fi
-  
-#   local pns_name_sql="${T_pns_name//\'/\'\'}";
-#   local kvns_name_sql="${T_kvns_name//\'/\'\'}";
-  
-#   local T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';" | tr -d '\n');
-#   if [[ -z "${T_pns_id}" ]]; then
-#     error "Project Namespace not found: '${T_pns_name}'.";
-#     return 1;
-#   fi
-
-#   local T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};" | tr -d '\n');
-#   if [[ -z "${T_kvns_id}" ]]; then
-#     error "Key-Value Namespace not found: '${T_kvns_name}' in project '${T_pns_name}'.";
-#     return 1;
-#   fi
-
-#   # Set global context variables
-#   BOOK_PNS_ID="${T_pns_id}";
-#   BOOK_PNS_NAME="${T_pns_name}";
-#   BOOK_KVNS_ID="${T_kvns_id}";
-#   BOOK_KVNS_NAME="${T_kvns_name}";
-  
-#   if [[ ${persist_context_needed} -eq 1 ]]; then
-#     log "Persisting new context to cursor: '${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}'";
-#     __persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
-#   fi
-
-#   if [[ ${persist_base_needed} -eq 1 ]]; then
-#     log "Persisting new base to cursor: '${THIS_BASE_NAME}'";
-#     printf "%s" "${THIS_BASE_NAME}" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write base cursor file: ${BOOK_BASE_CURSOR}";
-#   fi
-
-#   trace "Context resolved: ${THIS_BASE_NAME}@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-#   return 0;
-# }
 
 __correct_context(){
   local def_pns_name="GLOBAL";
@@ -1446,25 +1338,29 @@ __print_keystore_contents(){
 ################################################################################
 # Description: Lists various database entities.
 do_ls(){
+  identify;
+
   local ret=1;
   local what="${1:-keys}"; # Default to listing keys
   case "${what}" in
     (all) do_ls_all; ret=$?; ;;
     (bases)
       local all_bases;
-      all_bases=$(_list_bases);
+      all_bases="$(_list_bases)";
       if __is_empty "${all_bases}"; then
           info "No bases found.";
       else
           info "Available Bases!:";
-          echo "${all_bases}" | while IFS= read -r base_name; do
+          printf "%s\n" "${all_bases}"  | while IFS= read -r base_name; do
               local prefix="  ";
               if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
                   prefix="* ";
               fi
+              imp " OH NO ${prefix} ${base_name}";
               info "${prefix} ${base_name}";
           done;
       fi
+      #info "!list is : ${all_bases[@]}";
       ret=0;
       ;;
     (project)
@@ -2062,6 +1958,7 @@ do_reset(){
 # __reset_deep is the single source of truth for a full wipe.
 __reset_deep(){
   trace "Performing deep clean of all XDG directories...";
+  # todo:  SC2115 (warning): Use "${var:?}" to ensure this never expands to / " 
   rm -rf "${BOOK_DATA}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_LIB}/${BOOK_PREF}" "${BOOK_BIN}/${BOOK_PREF}"; 
 }
 
@@ -2208,6 +2105,7 @@ do_import(){
     log "No target context specified; using current cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}.";
   fi
 
+  # todo: use %s instead of inline for printf
   printf "The following ${#keys_to_import[@]} keys will be imported into context:\n" >&2;
   printf "${yellow}@%s.VAR.%s${xx} with write mode: %s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${T_writemode}" >&2;
   printf "%s\n" "$LINE" >&2;
@@ -2829,7 +2727,7 @@ options(){
       (-p|--projdb) opt_projdb="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
       (-k|--keydb) opt_keydb="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
       (--ns) opt_ns="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
-      (--pr*|--printer)
+      (--pr*)
         if [[ "${remaining_args[$((i+1))]}" == "stdoutt" ]]; then
           opt_printer_test=1; i=$((i+1));
         else
@@ -2881,6 +2779,7 @@ __print_in_columns() {
             row_args+=("$col_width" "${items[i+j]:-}");
         done;
         # We add the newline here, outside the format string, for clarity and control.
+        # todo: dont use vars in print string use %s
         printf -- "${format_string}\n" "${row_args[@]}";
     done;
     return 0;
