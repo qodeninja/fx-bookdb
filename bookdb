@@ -1345,18 +1345,37 @@ do_ls(){
   case "${what}" in
     (all) do_ls_all; ret=$?; ;;
     (bases)
-      local all_bases;
-      all_bases="$(_list_bases)";
+      # local all_bases;
+      # all_bases="$(_list_bases)";
+
+      local all_bases=()
+      mapfile -t all_bases < <(_list_bases);
+
       if __is_empty "${all_bases}"; then
           info "No bases found.";
       else
           info "Available Bases!:";
+
+          #while loop
           printf "%s\n" "${all_bases}"  | while IFS= read -r base_name; do
               local prefix="  ";
               if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
                   prefix="* ";
               fi
-              imp " OH NO ${prefix} ${base_name}";
+
+              if ((${#all_bases[@]} == 0)); then
+                info "No bases found."
+              else
+                info "Available Bases!:"
+                for base_name in "${all_bases[@]}"; do
+                  local prefix="  "
+                  if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
+                    prefix="* "
+                  fi
+                  info "${prefix}${base_name}"
+                done
+              fi
+              ret=0
               info "${prefix} ${base_name}";
           done;
       fi
