@@ -11,7 +11,7 @@
   # @ top
   SELF="APP_BOOKDB";
 
-  readonly BOOK_PREF='bookdb';
+  BOOK_PREF='bookdb';
   readonly BOOK_NAME="$SELF";
 
   readonly BOOK_ARGS=("${@}");
@@ -1937,7 +1937,7 @@ do_reset(){
   if [[ "${SOFT_RESET}" -eq 0 ]]; then
     msg="[Soft Reset]. This will reset all cursors and configuration, and rebase the 'main' database.";
   else
-    msg="[Hard Reset]. This will permanently delete ALL bookdb data, configuration, and the installed command.";
+    msg="[Hard Reset]. This will permanently delete ALL bookdb data, configuration, and the installed command associated with '${BOOK_PREF}'.";
   fi;
 
   if __confirm_action "${msg} Continue?"; then
@@ -1951,7 +1951,7 @@ do_reset(){
       # A soft reset should also reset the main database to a pristine state
       do_rebase "main";
     else
-      warn "Performing FULL HARD RESET...";
+      warn "Performing FULL HARD RESET for '${BOOK_PREF}'...";
       local profile_file;
       profile_file=$(__find_shell_profile);
       if [[ -n "${profile_file}" ]]; then
@@ -1977,7 +1977,8 @@ do_reset(){
 # __reset_deep is the single source of truth for a full wipe.
 __reset_deep(){
   trace "Performing deep clean of all XDG directories...";
-  # todo:  SC2115 (warning): Use "${var:?}" to ensure this never expands to / " 
+  # The BOOK_PREF is already incorporated into BOOK_DATA, BOOK_ETC, BOOK_STATE
+  # so we only need to explicitly use it for BOOK_LIB and BOOK_BIN.
   rm -rf "${BOOK_DATA}" "${BOOK_ETC}" "${BOOK_STATE}" "${BOOK_LIB}/${BOOK_PREF}" "${BOOK_BIN}/${BOOK_PREF}"; 
 }
 
@@ -2517,7 +2518,7 @@ do_install(){
   fi
 
   _get_rc_template > "$BOOK_RC" || fatal "Failed to save RC file: ${BOOK_RC}.";
-  __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration" || return 1;
+  __link_to_profile "${profile_file}" "source '${BOOK_RC}' # bookdb configuration for ${BOOK_PREF}" || return 1;
   
   if is_user; then
     printf "\n[OKAY] Installation complete!\n" >&2;
@@ -2709,7 +2710,7 @@ EOF
 # Description: Parses command-line arguments, correctly handling context chains and flags.
 options(){
   # Initialize all opt_ variables
-  opt_quiet=; opt_projdb=; opt_keydb=; opt_ns=; opt_yes=; opt_all=;
+  opt_quiet=; opt_projdb=; opt_keydb=; opt_ns=; opt_yes=; opt_all=; opt_alias=;
   opt_context_chain=; opt_chain_mode=; opt_base_override=;
   opt_printer_test=;
   identify;
@@ -2735,22 +2736,24 @@ options(){
 
   # --- Second Pass: Parse standard flags from the arguments that were NOT context chains ---
   local -a final_args=();
-  local i=0;
+  local i=0 arg next;
   while [[ $i -lt ${#remaining_args[@]} ]]; do
-    local arg="${remaining_args[$i]}";
+    arg="${remaining_args[$i]}";
+    next=${remaining_args[$((i+1))]};
     case "$arg" in
       (-a|--all) opt_all=0; ;;
       (-q|--quiet) opt_quiet=0; ;;
       (-y|--yes) opt_yes=0; ;;
       (--soft) SOFT_MODE=0; ;;
-      (-p|--projdb) opt_projdb="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
-      (-k|--keydb) opt_keydb="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
-      (--ns) opt_ns="${remaining_args[$((i+1))]}"; i=$((i+1)); ;;
+      (-p|--projdb) opt_projdb="${next}"; i=$((i+1)); ;;
+      (-k|--keydb) opt_keydb="${next}"; i=$((i+1)); ;;
+      (--ns) opt_ns="${next}"; i=$((i+1)); ;;
+      (--alias) opt_alias="${next}"; i=$((i+1)); ;;
       (--pr*)
-        if [[ "${remaining_args[$((i+1))]}" == "stdoutt" ]]; then
+        if [[ "${next}" == "stdoutt" ]]; then
           opt_printer_test=1; i=$((i+1));
         else
-          error "Invalid value for --printer: ${remaining_args[$((i+1))]}"; usage;
+          error "Invalid value for --printer: (got=${next})"; usage;
         fi
         ;;
       (--) i=$((i+1)); final_args+=("${remaining_args[@]:$i}"); break; ;;
@@ -2763,6 +2766,7 @@ options(){
   ARGS=("${final_args[@]}");
   return 0;
 }
+
 ################################################################################
 #
 #  __print_in_columns (Low-Ordinal Helper)
@@ -2882,6 +2886,25 @@ dispatch(){
 
 ################################################################################
 #
+#  __apply_alias
+#
+################################################################################
+# Description: If an alias is provided via the --alias flag, this function
+#              overrides the BOOK_PREF variable to namespace the installation.
+#              This is the core of the aliased installation feature.
+# Arguments: None
+# Returns: 0
+# Globals: opt_alias, BOOK_PREF
+__apply_alias(){
+  if [[ -n "$opt_alias" ]]; then
+    BOOK_PREF="$opt_alias";
+    info "Running with alias: ${BOOK_PREF}"
+  fi
+  return 0;
+}
+
+################################################################################
+#
 #  main
 #
 ################################################################################
@@ -2889,10 +2912,12 @@ dispatch(){
 main(){
   local ret;
   local run_count=$(counter);
+
+  imp "DEV MODE: $DEV_MODE";
   line "$run_count";
   identify;
   options "$@";
-
+  __apply_alias; # Call the new alias function here
 
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   if is_dev; then  imp "Dev Mode Enabled. Safety Guards Disabled!"; fi

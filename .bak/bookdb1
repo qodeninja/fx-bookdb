@@ -1,0 +1,177 @@
+
+#!/bin/bash
+#
+# bookdb - Phase 1: Bare Skeleton & Logger
+# A shell-based, context-aware key-value store built on sqlite3.
+# This phase implements the core application structure and logging.
+#
+
+#
+# --- Global Constants & Configuration ---
+#
+readonly C_RESET='\033[0m';
+readonly C_RED='\033[0;31m';
+# Global array to hold arguments after options are parsed.
+# Bash 3.2 does not have `declare -gA` so we use a standard global.
+ARGS=();
+
+
+#
+# --- Cornerstone Functions (Internal Helpers) ---
+#
+
+# Writes a log message to stderr, respecting QUIET_MODE.
+# Usage: __log "Your message here"
+__log() {
+  local msg="$1";
+  if [[ -z "$QUIET_MODE" ]]; then
+    echo "LOG: ${msg}" >&2;
+  fi;
+  return 0;
+};
+
+# Writes an error message to stderr, ignoring QUIET_MODE.
+# Usage: __error "Something went wrong"
+__error() {
+  local msg="$1";
+  if [[ -n "$NO_COLOR" ]]; then
+    echo "ERROR: ${msg}" >&2;
+  else
+    # The -e flag is required to interpret the escape sequences for color.
+    echo -e "${C_RED}ERROR: ${msg}${C_RESET}" >&2;
+  fi;
+  return 1;
+};
+
+# Writes a fatal error message and exits the script with status 1.
+# Usage: __fatal "A critical failure occurred"
+__fatal() {
+  __error "$1";
+  exit 1;
+};
+
+
+#
+# --- Command Functions (Business Logic) ---
+#
+
+# A test function to verify the logger is working as expected.
+# This function is used to meet the success conditions of Phase 1.
+dev_test_logger() {
+  __log "This is a standard log message.";
+  __log "It should be hidden when QUIET_MODE is active.";
+  __error "This is a standard error message. It should always be visible.";
+  __fatal "This is a fatal error. The script will now exit.";
+  # This line should never be reached.
+  __error "This message should never appear.";
+};
+
+
+#
+# --- Core Application Logic ---
+#
+
+# Displays usage information and exits.
+usage() {
+  # Using cat with a heredoc to stderr, as per BASHFX patterns.
+  cat << EOF >&2
+Usage: bookdb <command> [args...] [flags...]
+
+A shell-based key-value store.
+
+Phase 1: Skeleton only.
+
+Available commands:
+  <any-command>   - Echos the command being dispatched.
+  dev-test-logger - Runs the internal logger test.
+
+Flags:
+  -q, --quiet     - Suppress all output except for errors.
+
+EOF
+  exit 1;
+};
+
+# Parses command-line options and populates global option variables.
+# This is a manual parser as required by the architecture.
+options() {
+  local local_args=();
+  opt_quiet=;
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (-q|--quiet)
+        opt_quiet=1;
+        shift;
+        ;;
+      (--)
+        # End of options marker
+        shift;
+        local_args+=("$@");
+        break;
+        ;;
+      (-*)
+        # Unknown option
+        __error "Unknown option: $1";
+        usage;
+        ;;
+      (*)
+        # A command or argument
+        local_args+=("$1");
+        shift;
+        ;;
+    esac;
+  done;
+
+  # Assign the parsed arguments to the global ARGS array
+  ARGS=("${local_args[@]}");
+  return 0;
+};
+
+# Routes commands to their corresponding functions.
+dispatch() {
+  local ret=1;
+  local cmd="${ARGS[0]}";
+
+  # If no command is provided, show usage.
+  if [[ -z "$cmd" ]]; then
+    usage;
+  fi;
+
+  case "$cmd" in
+    (dev-test-logger)
+      dev_test_logger;
+      ret=$?;
+      ;;
+    (*)
+      # For Phase 1, simply log the command that would be dispatched.
+      __log "Dispatching: ${cmd}";
+      ret=0;
+      ;;
+  esac;
+
+  return ${ret};
+};
+
+# The main entrypoint for the script.
+main() {
+  # Parse all command-line options.
+  options "$@";
+
+  # Set global modes based on parsed options.
+  if [[ -n "$opt_quiet" ]]; then
+    QUIET_MODE=true;
+  fi;
+
+  # Hand control over to the command dispatcher.
+  dispatch;
+  local ret=$?;
+
+  return ${ret};
+};
+
+
+#
+# --- Execution Entry Point ---
+#
+main "$@";

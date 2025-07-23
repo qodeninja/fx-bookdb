@@ -1,0 +1,389 @@
+#!/bin/bash
+#
+# bookdb - Phase 3: Context Resolution
+# A shell-based, context-aware key-value store built on sqlite3.
+# This phase implements the context resolution logic, flags, and cursor file.
+#
+
+#
+# --- Global Constants & Configuration ---
+#
+readonly C_RESET='\033[0m';
+readonly C_RED='\033[0;31m';
+
+# XDG+ Paths (as per BASHFX architecture)
+readonly BOOKDB_ROOT_DIR="${HOME}/.local";
+readonly BOOKDB_SHARE_DIR="${BOOKDB_ROOT_DIR}/share/bookdb";
+readonly BOOKDB_ETC_DIR="${BOOKDB_ROOT_DIR}/etc/bookdb";
+readonly BOOKDB_STATE_DIR="${BOOKDB_ROOT_DIR}/state/bookdb";
+readonly BOOKDB_DB_FILE="${BOOKDB_SHARE_DIR}/bookdb.sqlite";
+readonly BOOKDB_RC_FILE="${BOOKDB_ETC_DIR}/book.rc";
+readonly BOOKDB_CURSOR_FILE="${BOOKDB_STATE_DIR}/cursor";
+
+# Global array to hold arguments after options are parsed.
+ARGS=();
+# Global context state variables
+BOOKDB_PNS_ID=;
+BOOKDB_PNS_NAME=;
+BOOKDB_KVNS_ID=;
+BOOKDB_KVNS_NAME=;
+
+
+#
+# --- Cornerstone Functions (Internal Helpers) ---
+#
+
+# Writes a log message to stderr, respecting QUIET_MODE.
+__log() {
+  local msg="$1";
+  if [[ -z "$QUIET_MODE" ]]; then
+    printf "LOG: %s\n" "${msg}" >&2;
+  fi;
+  return 0;
+};
+
+# Writes an error message to stderr, ignoring QUIET_MODE.
+__error() {
+  local msg="$1";
+  if [[ -n "$NO_COLOR" ]]; then
+    printf "ERROR: %s\n" "${msg}" >&2;
+  else
+    printf "${C_RED}ERROR: %s${C_RESET}\n" "${msg}" >&2;
+  fi;
+  return 1;
+};
+
+# Writes a fatal error message and exits the script with status 1.
+__fatal() {
+  __error "$1";
+  exit 1;
+};
+
+# Executes a query against the SQLite database.
+__db_query() {
+  local ret=1;
+  local query="$1";
+
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    __error "sqlite3 command not found. It is a required dependency.";
+    return 1;
+  fi;
+
+  if [[ ! -f "${BOOKDB_DB_FILE}" ]]; then
+    __error "Database file does not exist: ${BOOKDB_DB_FILE}";
+    return 1;
+  fi;
+
+  sqlite3 "${BOOKDB_DB_FILE}" "${query}";
+  ret=$?;
+
+  if [[ ${ret} -ne 0 ]]; then
+    __error "Database query failed for: ${query}";
+  fi;
+
+  return ${ret};
+};
+
+# Writes the active context to the cursor file.
+# Usage: __persist_cursor "project_name" "keyval_name"
+__persist_cursor() {
+  local pns_name="$1";
+  local kvns_name="$2";
+
+  if [[ -z "$pns_name" || -z "$kvns_name" ]]; then
+    __error "Cannot persist invalid cursor (PNS: ${pns_name}, KVNS: ${kvns_name})";
+    return 1;
+  fi;
+
+  # Atomically write to the cursor file
+  printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOKDB_CURSOR_FILE}.tmp";
+  mv "${BOOKDB_CURSOR_FILE}.tmp" "${BOOKDB_CURSOR_FILE}" || __fatal "Failed to write cursor file";
+
+  return 0;
+};
+
+# Resolves the active context from args, flags, or cursor file.
+# Sets global BOOKDB_* variables.
+__resolve_context() {
+  local ret=1;
+  local T_pns_name=;
+  local T_kvns_name=;
+  local persist_needed=0;
+
+  # --- Step 1: Check for explicit context from args ---
+  # This includes context chains (@...) and flags (-p, -k)
+  if [[ -n "${opt_context_chain}" ]]; then
+    persist_needed=1;
+    # Format: @PROJECT.VAR.KEYVAL
+    # Remove prefix, then split by '.'
+    local clean_chain="${opt_context_chain#*@}";
+    clean_chain="${clean_chain#*%}";
+    T_pns_name=$(echo "${clean_chain}" | cut -d'.' -f1);
+    T_kvns_name=$(echo "${clean_chain}" | cut -d'.' -f3);
+    # The middle part must be 'VAR' for the MVP
+    local context_type=$(echo "${clean_chain}" | cut -d'.' -f2);
+    if [[ "${context_type}" != "VAR" ]]; then
+      __fatal "Invalid context chain: middle part must be 'VAR' (e.g., @myproj.VAR.config)";
+    fi;
+  fi;
+
+  if [[ -n "${opt_projdb}" ]]; then
+    persist_needed=1;
+    T_pns_name="${opt_projdb}";
+  fi;
+  if [[ -n "${opt_keydb}" ]]; then
+    persist_needed=1;
+    T_kvns_name="${opt_keydb}";
+  fi;
+
+  # --- Step 2: If no explicit context, read from cursor or use defaults ---
+  if [[ -z "${T_pns_name}" && -z "${T_kvns_name}" ]]; then
+    if [[ -f "${BOOKDB_CURSOR_FILE}" ]]; then
+      __log "Reading context from cursor file";
+      T_pns_name=$(sed -n '1p' "${BOOKDB_CURSOR_FILE}");
+      T_kvns_name=$(sed -n '2p' "${BOOKDB_CURSOR_FILE}");
+    else
+      __log "No cursor file found, using default context";
+      T_pns_name="GLOBAL";
+      T_kvns_name="MAIN";
+    fi;
+  fi;
+
+  # --- Step 3: Fill in blanks with cursor/defaults if only one part was given ---
+  if [[ -z "${T_pns_name}" ]]; then
+      T_pns_name=$(sed -n '1p' "${BOOKDB_CURSOR_FILE}" 2>/dev/null || echo "GLOBAL");
+  fi;
+  if [[ -z "${T_kvns_name}" ]]; then
+      T_kvns_name=$(sed -n '2p' "${BOOKDB_CURSOR_FILE}" 2>/dev/null || echo "MAIN");
+  fi;
+
+  # --- Step 4: Validate context against DB and set global variables ---
+  # Sanitize input for SQL by escaping single quotes
+  local pns_name_sql="${T_pns_name//\'/\'\'}";
+  local kvns_name_sql="${T_kvns_name//\'/\'\'}";
+
+  local T_pns_id;
+  T_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name_sql}';");
+  if [[ -z "${T_pns_id}" ]]; then
+    __error "Project Namespace not found: '${T_pns_name}'";
+    return 1;
+  fi;
+
+  local T_kvns_id;
+  T_kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name_sql}' AND pns_id_fk = ${T_pns_id};");
+  if [[ -z "${T_kvns_id}" ]]; then
+    __error "Key-Value Namespace not found: '${T_kvns_name}' in project '${T_pns_name}'";
+    return 1;
+  fi;
+
+  # --- Step 5: Success! Set globals and persist if needed ---
+  BOOKDB_PNS_ID="${T_pns_id}";
+  BOOKDB_PNS_NAME="${T_pns_name}";
+  BOOKDB_KVNS_ID="${T_kvns_id}";
+  BOOKDB_KVNS_NAME="${T_kvns_name}";
+
+  if [[ ${persist_needed} -eq 1 ]]; then
+    __log "Persisting new context to cursor: ${BOOKDB_PNS_NAME}.${BOOKDB_KVNS_NAME}";
+    __persist_cursor "${BOOKDB_PNS_NAME}" "${BOOKDB_KVNS_NAME}";
+  fi;
+
+  ret=0;
+  return ${ret};
+};
+
+
+#
+# --- Command Functions (Business Logic) ---
+#
+
+dev_install() {
+  local ret=1;
+  __log "Starting BookDB installation...";
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    __fatal "sqlite3 command not found. Please install it to continue.";
+  fi;
+  __log "Creating XDG+ directories...";
+  mkdir -p "${BOOKDB_SHARE_DIR}" || __fatal "Failed to create share dir: ${BOOKDB_SHARE_DIR}";
+  mkdir -p "${BOOKDB_ETC_DIR}" || __fatal "Failed to create etc dir: ${BOOKDB_ETC_DIR}";
+  mkdir -p "${BOOKDB_STATE_DIR}" || __fatal "Failed to create state dir: ${BOOKDB_STATE_DIR}";
+  touch "${BOOKDB_DB_FILE}" || __fatal "Failed to create database file at ${BOOKDB_DB_FILE}";
+  __log "Creating database schema...";
+  local sql_create_pns="CREATE TABLE project_ns (pns_id INTEGER PRIMARY KEY, pns_name TEXT UNIQUE NOT NULL);";
+  local sql_create_kvns="CREATE TABLE keyval_ns (kvns_id INTEGER PRIMARY KEY, kvns_name TEXT NOT NULL, pns_id_fk INTEGER, FOREIGN KEY(pns_id_fk) REFERENCES project_ns(pns_id) ON DELETE CASCADE);";
+  local sql_create_vars="CREATE TABLE vars (var_id INTEGER PRIMARY KEY, var_key TEXT NOT NULL, var_value TEXT, var_updated INTEGER, kvns_id_fk INTEGER, FOREIGN KEY(kvns_id_fk) REFERENCES keyval_ns(kvns_id) ON DELETE CASCADE);";
+  __db_query "${sql_create_pns}" || __fatal "Failed to create 'project_ns' table.";
+  __db_query "${sql_create_kvns}" || __fatal "Failed to create 'keyval_ns' table.";
+  __db_query "${sql_create_vars}" || __fatal "Failed to create 'vars' table.";
+  __log "Initializing default namespaces...";
+  __db_query "INSERT INTO project_ns (pns_name) VALUES ('GLOBAL');" || __fatal "Failed to create GLOBAL project.";
+  local global_pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = 'GLOBAL';");
+  __db_query "INSERT INTO keyval_ns (kvns_name, pns_id_fk) VALUES ('MAIN', ${global_pns_id});" || __fatal "Failed to create MAIN key-value store for GLOBAL.";
+  __log "Generating RC file...";
+  cat << EOF > "${BOOKDB_RC_FILE}";
+# bookdb runtime configuration
+export BOOKDB_HOME="${BOOKDB_SHARE_DIR}"
+export BOOKDB_INSTALLED="true"
+EOF
+  if [[ $? -ne 0 ]]; then
+      __fatal "Failed to create RC file: ${BOOKDB_RC_FILE}";
+  fi;
+  printf "\n[OKAY] Installation successful!\n\n" >&2;
+  printf "To complete the setup, add the following line to your shell profile\n" >&2;
+  printf "(e.g., ~/.bashrc, ~/.zshrc, or ~/.profile):\n\n" >&2;
+  printf "    source %s\n\n" "${BOOKDB_RC_FILE}" >&2;
+  ret=0;
+  return ${ret};
+};
+
+dev_test_db() {
+    __log "Running database R/W test...";
+    local test_key="db_test_$$";
+    local test_val="success";
+    local ts;
+    ts=$(date +%s);
+    local sql_insert="INSERT INTO vars (var_key, var_value, var_updated, kvns_id_fk) VALUES ('${test_key}', '${test_val}', ${ts}, 1);";
+    __db_query "${sql_insert}";
+    if [[ $? -ne 0 ]]; then __fatal "DB TEST FAILED: Could not insert test key."; fi;
+    local sql_select="SELECT var_value FROM vars WHERE var_key = '${test_key}';";
+    local res;
+    res=$(__db_query "${sql_select}");
+     if [[ $? -ne 0 ]]; then __fatal "DB TEST FAILED: Could not select test key."; fi;
+    if [[ "${res}" != "${test_val}" ]]; then
+        __fatal "DB TEST FAILED: Mismatch on read. Expected '${test_val}' but got '${res}'.";
+    fi;
+    __log "DB read/write successful.";
+    local sql_delete="DELETE FROM vars WHERE var_key = '${test_key}';";
+    __db_query "${sql_delete}" || __error "DB TEST CLEANUP FAILED: Could not delete test key.";
+    __log "DB Test OKAY.";
+    return 0;
+};
+
+# Simply prints the final resolved context variables for testing.
+dev_test_context() {
+  printf "Resolved Context:\n" >&2;
+  printf "  Project: %s (ID: %s)\n" "${BOOKDB_PNS_NAME}" "${BOOKDB_PNS_ID}" >&2;
+  printf "  Key-Val: %s (ID: %s)\n" "${BOOKDB_KVNS_NAME}" "${BOOKDB_KVNS_ID}" >&2;
+  return 0;
+};
+
+#
+# --- Core Application Logic ---
+#
+
+usage() {
+  cat << EOF >&2
+Usage: bookdb <command> [args...] [flags...] [<context-chain>]
+
+A shell-based key-value store.
+
+Context can be set via flags, a context-chain, or the cursor file.
+Context Chain Format: @PROJECT.VAR.KEYVAL
+
+Available commands:
+  dev-install       - Manually run the installer.
+  dev-test-db       - Run a test to verify database R/W.
+  dev-test-context  - Displays the final resolved context for testing.
+  <any-command>     - Echos the command being dispatched.
+
+Flags:
+  -p, --projdb <name>   - Set project namespace for this command.
+  -k, --keydb <name>    - Set key-value namespace for this command.
+  -q, --quiet           - Suppress all output except for errors.
+
+EOF
+  exit 1;
+};
+
+options() {
+  local local_args=();
+  opt_quiet=;
+  opt_projdb=;
+  opt_keydb=;
+  opt_context_chain=;
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      (-q|--quiet)
+        opt_quiet=1; shift; ;;
+      (-p|--projdb)
+        opt_projdb="$2"; shift 2; ;;
+      (-k|--keydb)
+        opt_keydb="$2"; shift 2; ;;
+      (--)
+        shift; local_args+=("$@"); break; ;;
+      (-*)
+        __error "Unknown option: $1"; usage; ;;
+      (*)
+        local_args+=("$1"); shift; ;;
+    esac;
+  done;
+
+  # Check if the last argument is a context chain
+  local last_arg_idx=$((${#local_args[@]} - 1));
+  if [[ ${last_arg_idx} -ge 0 ]]; then
+    local last_arg="${local_args[${last_arg_idx}]}";
+    if [[ "${last_arg}" == \@* || "${last_arg}" == \%* ]]; then
+      opt_context_chain="${last_arg}";
+      # Remove it from the list of normal arguments
+      unset 'local_args[${last_arg_idx}]';
+    fi;
+  fi;
+
+  ARGS=("${local_args[@]}");
+  return 0;
+};
+
+dispatch() {
+  local ret=1;
+  local cmd="${ARGS[0]}";
+
+  if [[ -z "$cmd" ]]; then
+    usage;
+  fi;
+
+  case "$cmd" in
+    (dev-install)
+      dev_install; ret=$?; ;;
+    (dev-test-db)
+      dev_test_db; ret=$?; ;;
+    (dev-test-context)
+      dev_test_context; ret=$?; ;;
+    (*)
+      __log "Dispatching: ${cmd}";
+      dev_test_context; # Also show context for general commands
+      ret=0;
+      ;;
+  esac;
+
+  return ${ret};
+};
+
+main() {
+  if [[ ! -f "${BOOKDB_DB_FILE}" ]]; then
+    if [[ "$1" != "dev-install" ]]; then
+      __log "BookDB database not found. Running installer for first-time setup.";
+      dev_install;
+      exit $?;
+    fi;
+  fi;
+
+  options "$@";
+
+  if [[ -n "$opt_quiet" ]]; then
+    QUIET_MODE=true;
+  fi;
+
+  # Resolve context *before* dispatching the command.
+  __resolve_context || exit 1;
+
+  dispatch;
+  local ret=$?;
+
+  return ${ret};
+};
+
+
+#
+# --- Execution Entry Point ---
+#
+main "$@";
