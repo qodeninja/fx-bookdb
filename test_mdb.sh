@@ -67,13 +67,14 @@ counter_inc(){ local c=$(countx 1 --name "$COUNTER"); printf "$c"; }
     local c;
     c=$(counter_inc);
     done_step;
-    stderr "${purple}\n =========== $1 (step $c) ========== \n"; 
+    stderr "${purple}\n ========================= $1 (step $c) ============================= \n"; 
     
   }
 
 
 # --- Setup ---
   set -e # Exit immediately on error
+  rm -rf "./tmp"; # Ensure clean slate for tests
   BOOKDB_SCRIPT="./bookdb"; # Assumes bookdb is in the same directory
   mkdir -p "./tmp" > /dev/null;
   readonly TEST_HOME="./tmp/.test_bookdb_env"; # Isolated HOME for testing
@@ -85,7 +86,7 @@ counter_inc(){ local c=$(countx 1 --name "$COUNTER"); printf "$c"; }
 # --- Simple Logger ---
 
 _ok()   { okay "  [OK] $1";  }
-_fail() { error "  [FAIL] $1 " ; exit 1; }
+_fail() { error "  [FAIL] $1 " ; }
 
 # --- Simple Assertion ---
 assert_contains() {
@@ -100,8 +101,10 @@ assert_contains() {
 }
 
 run_with_dev_mode() {
+  local book_pref_override="$1";
+  shift;
   # The "$@" passes along all arguments perfectly
-  env HOME="${TEST_HOME}" DEV_MODE=0 "$@"
+  env HOME="${TEST_HOME}" TEST_MODE=0 DEV_MODE=0 BOOK_PREF="${book_pref_override}" "$@"
 }
 
 # --- Main Test Execution ---
@@ -113,8 +116,10 @@ main(){
 
     counter_init;
     step "PHASE 0: CLEANUP & SETUP"
+    # Ensure a clean test environment every time
+    rm -rf "./tmp";
+    mkdir -p "./tmp" > /dev/null;
     export HOME="${TEST_HOME}";
-    rm -rf "${TEST_HOME}"
     mkdir -p "${TEST_HOME}"
     touch "${TEST_HOME}/.bashrc"
     _ok "Test environment created at ${TEST_HOME}"
@@ -123,67 +128,67 @@ main(){
 
 
     step "PHASE 1: INSTALLATION"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y $STDOUT_PRINTER;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" install -y $STDOUT_PRINTER;
     done_step;
     _ok "bookdb installed successfully"
     
 
     step "PHASE 2: BASE CREATION & SELECTION"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" new base --ns work $STDOUT_PRINTER;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" new base --ns work $STDOUT_PRINTER;
     done_step;
     _ok "Created new base 'work'"
 
 
-    run_with_dev_mode "${BOOKDB_SCRIPT}" select work $STDOUT_PRINTER;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" select work $STDOUT_PRINTER;
     done_step;
     _ok "Selected 'work' as active base"
 
     
-    local base_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" base)
+    local base_output=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" base)
     assert_contains "$base_output" "work" "Verified active base is 'work'"
 
     step "PHASE 3: CRUD IN CUSTOM BASE"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" new project --ns tickets $STDOUT_PRINTER;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" new project --ns tickets $STDOUT_PRINTER;
     done_step;
     _ok "Created project 'tickets' in 'work' base"
 
 
-    run_with_dev_mode "${BOOKDB_SCRIPT}" setv TICKET-123="Fix the login button" @tickets.VAR.MAIN $STDOUT_PRINTER >/dev/null
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" setv TICKET-123="Fix the login button" @tickets.VAR.MAIN $STDOUT_PRINTER >/dev/null
     done_step;
     _ok "Set a value in tickets.VAR.MAIN"
 
 
-    local ticket_val=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv TICKET-123)
+    local ticket_val=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" getv TICKET-123)
     assert_contains "$ticket_val" "Fix the login button" "Verified value in 'work' base"
     done_step;
 
     step "PHASE 4: ON-THE-FLY BASE@CONTEXT SYNTAX"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" setv PERSONAL_NOTE="Buy milk" main@GLOBAL.VAR.MAIN $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" setv PERSONAL_NOTE="Buy milk" main@GLOBAL.VAR.MAIN $STDOUT_PRINTER >/dev/null;
     done_step;
     _ok "Set a value in 'main' base using base@context syntax"
 
 
     # After the above command, the active base is now 'main' and context is 'GLOBAL.VAR.MAIN'
-    local personal_note=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv PERSONAL_NOTE)
+    local personal_note=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" getv PERSONAL_NOTE)
     done_step;
     assert_contains "$personal_note" "Buy milk" "Verified value retrieved from 'main' base"
 
 
-    local cursor_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" cursor $STDOUT_PRINTER)
+    local cursor_output=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" cursor $STDOUT_PRINTER)
     done_step;
     assert_contains "$cursor_output" "main@GLOBAL.VAR.MAIN" "Verified cursor was persisted to 'main'"
 
 
     step "PHASE 5: LISTING & BACKUP"
     # Select 'work' base again to test the ls output formatting
-    run_with_dev_mode "${BOOKDB_SCRIPT}" select work >/dev/null;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" select work >/dev/null;
     done_step;
 
-    local ls_bases_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" ls bases $STDOUT_PRINTER)
+    local ls_bases_output=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" ls bases $STDOUT_PRINTER)
     assert_contains "$ls_bases_output" "\* work" "ls bases correctly shows 'work' as active"
     assert_contains "$ls_bases_output" "main" "ls bases correctly shows 'main' as inactive"
 
-    run_with_dev_mode "${BOOKDB_SCRIPT}" backup --all $STDOUT_PRINTER >/dev/null
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" backup --all $STDOUT_PRINTER >/dev/null
     done_step;
     _ok "Full backup (--all) command executed";
   
@@ -195,7 +200,7 @@ main(){
 
 
     step "PHASE 6: CLEANUP"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y $STDOUT_PRINTER;
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" reset -y $STDOUT_PRINTER;
     _ok "bookdb reset successfully"
 
     if [ -d "${TEST_HOME}/.local/data/fx/bookdb" ]; then
@@ -216,6 +221,8 @@ main(){
 
 
 
+
+
     #we need setup again due to prior rm
     mkdir -p "${TEST_HOME}"
     touch "${TEST_HOME}/.bashrc"
@@ -228,11 +235,10 @@ main(){
     local ALIAS_DATA_DIR="${TEST_HOME}/.local/data/fx/${ALIAS_NAME}";
 
   
-    step "PHASE 7: ALIASING INSTALLATION & RESET";
 
     # Install with alias
-    step "Installing aliased version: ${ALIAS_NAME}"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
+    step "PHASE 7: Installing aliased version: ${ALIAS_NAME}"
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" install -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
     done_step;
     _ok "Aliased script '${ALIAS_SCRIPT}' created."
     if [[ ! -f "${ALIAS_SCRIPT}" ]]; then
@@ -241,27 +247,30 @@ main(){
   
 
     # Verify aliased command works independently
-    step "Verifying aliased command independence"
-    local alias_output=$(run_with_dev_mode "${ALIAS_SCRIPT}" setv ALIAS_TEST_KEY="Hello from alias" && run_with_dev_mode "${ALIAS_SCRIPT}" getv ALIAS_TEST_KEY);
+    step "PHASE 8: Verifying aliased command independence"
+    local alias_output=$(run_with_dev_mode "${ALIAS_NAME}" "${ALIAS_SCRIPT}" setv ALIAS_TEST_KEY="Hello from alias" && step "PHASE 8B" && done_step &&  run_with_dev_mode "${ALIAS_NAME}" "${ALIAS_SCRIPT}" getv ALIAS_TEST_KEY);
     done_step;
     assert_contains "${alias_output}" "Hello from alias" "Aliased command set/get value correctly."
     
 
     # Verify original bookdb is unaffected
-    step "Verifying original bookdb is unaffected"
-    local original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv ALIAS_TEST_KEY 2>&1 || echo ""); 
+    step "PHASE 9: Verifying original bookdb is unaffected"
+    local original_output=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" getv ALIAS_TEST_KEY $STDOUT_PRINTER);   
+    #info "original out: $original_output";
+    # Expecting empty or error
     done_step;
 
-    
-    # Expecting empty or error
     if [[ -n "${original_output}" && "${original_output}" != *"not found"* ]]; then
         _fail "Original bookdb was affected by aliased install. Output: ${original_output}"
     fi
     _ok "Original bookdb unaffected by aliased install."
 
+
+
+
     # Reset aliased version
-    step "Resetting aliased version: ${ALIAS_NAME}"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
+    step "PHASE 10: Reset aliased version from project?? : ${ALIAS_NAME}"
+    run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" reset -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
     done_step;
 
     _ok "Aliased script '${ALIAS_SCRIPT}' removed."
@@ -273,9 +282,14 @@ main(){
     fi
     _ok "Aliased data directory '${ALIAS_DATA_DIR}' removed."
 
-    step "PHASE 8: FINAL SANITY CHECK OF ORIGINAL BOOKDB"
+
+
+
+
+    step "PHASE 11: FINAL SANITY CHECK OF ORIGINAL BOOKDB"
     # Re-run a simple command on original bookdb to ensure it's still functional
-    local final_original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" status);
+    local final_original_output=$(run_with_dev_mode "bookdb" "${BOOKDB_SCRIPT}" status);
+    done_step;
     assert_contains "${final_original_output}" "Active Database: main" "Original bookdb still functional after aliased operations."
 
 

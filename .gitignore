@@ -12,3 +12,6 @@ docs/*
 !README.md
 
 tmp/
+
+func/
+orig/

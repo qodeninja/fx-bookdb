@@ -77,7 +77,6 @@
   BOOK_CONTEXT_CURSOR=;
   BOOK_LOCK=;
 
-  __init_xdg_paths(){
     _XDG_PREF="fx/${BOOK_PREF}";
     BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
     BOOK_BIN="${_XDG_HOME}/bin/fx";
@@ -97,7 +96,28 @@
 
     # query lock
     BOOK_LOCK="${BOOK_STATE}/db.lock";
-  }
+
+  # __init_xdg_paths(){
+  #   _XDG_PREF="fx/${BOOK_PREF}";
+  #   BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
+  #   BOOK_BIN="${_XDG_HOME}/bin/fx";
+  #   BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
+  #   BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; # XDG data do not change
+  #   BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
+  #   BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
+
+  #   # db setup
+  #   BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
+  #   BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
+
+  #   # rcfile and cursors
+  #   BOOK_RC="${BOOK_ETC}/bookrc";
+  #   BOOK_BASE_CURSOR="${BOOK_STATE}/base_cursor";
+  #   BOOK_CONTEXT_CURSOR="${BOOK_STATE}/context_cursor"; 
+
+  #   # query lock
+  #   BOOK_LOCK="${BOOK_STATE}/db.lock";
+  # }
 
 #-------------------------------------------------------------------------------
 #  Context Variables (Initialized by Bootstrap/Context)
@@ -532,6 +552,7 @@ todo(){
 # Returns: 0 on success, 1 on failure.
 # Local Variables: ret
 bootstrap(){
+  identify;
   local ret=1;
   if is_file "$BOOK_RC"; then
     source "$BOOK_RC";
@@ -653,6 +674,9 @@ has_key(){
 # Sets Global: THIS_DB, THIS_BASE_NAME
 # Returns: 0
 select_db(){
+  identify;
+
+  trace "book data path is $BOOK_DATA";
   # Priority 1: TEST_MODE always overrides everything.
   if [[ -n "$TEST_MODE" && "$TEST_MODE" -eq 0 ]]; then
     THIS_DB="$BOOK_TEST_DB";
@@ -737,8 +761,11 @@ __ensure_default_keystore_exists(){
 # Description: Self-healing function to ensure the default 'main.sqlite' base
 #              exists. If it doesn't, it creates it.
 __ensure_default_base_exists(){
+    identify;
     local main_base_path;
     main_base_path=$(__get_base_path "main");
+    info "Base path main $main_base_path";
+    todo "MAIN SHOULD NOT BE HARDCODED!"
 
     if [[ ! -f "${main_base_path}" ]]; then
         info "Default 'main' database not found. Creating it now...";
@@ -882,10 +909,13 @@ __validate_name(){
 ################################################################################
 # Description: Takes a base name and returns its full, absolute path.
 __get_base_path(){
-    local base_name="$1";
-    printf "%s" "${BOOK_DATA}/${base_name}.sqlite";
-    return 0;
+  local base_name="$1";
+  printf "%s" "${BOOK_DATA}/${base_name}.sqlite";
+  return 0;
 }
+
+# BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
+# BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
 
 ################################################################################
 #
@@ -2494,20 +2524,24 @@ do_install(){
       fatal "CRITICAL: Could not resolve path for currently executing script: ${APP_BOOKDB}.";
   fi
   trace "Installing/Updating from source: ${script_path}";
-  cp -f "${script_path}" "${_cp_path}" || fatal "Failed to copy script to library: ${_cp_path}.";
+  # Ensure the target file is removed before copying
+  rm -f "${_cp_path}";
+  printf -v _cp_path_final "%s/%s" "${BOOK_LIB}" "${BOOK_PREF}";
+  cp -f "${script_path}" "${_cp_path_final}" || fatal "Failed to copy script to library: ${_cp_path_final}.";
   chmod +x "${_cp_path}" || fatal "Failed to set executable permissions on '${_cp_path}'.";
   # --- End Installer Pattern ---
 
-  # Create initial 'main' base and set it as active if this is a fresh install
+  # Create initial base and set it as active if this is a fresh install
   if [[ ! -e "${BOOK_BASE_CURSOR}" ]]; then
       _create_base "main" || fatal "Failed to create initial 'main' database.";
       printf "%s" "main" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write initial base cursor.";
   fi
 
   local _ln_path="${BOOK_BIN}/${BOOK_PREF}";
+  local _abs_cp_path=$(readlink -f "${_cp_path}");
   if [[ ! -L "${_ln_path}" ]]; then
-    trace "Creating symlink: ${_ln_path} -> ${_cp_path}";
-    ln -s "${_cp_path}" "${_ln_path}" || fatal "Failed to create symlink: ${_ln_path}.";
+    trace "Creating symlink: ${_ln_path} -> ${_abs_cp_path}";
+    ln -s "${_abs_cp_path}" "${_ln_path}" || fatal "Failed to create symlink: ${_ln_path}.";
   else
     warn "Symlink found '${_ln_path}'.";
   fi
@@ -2835,17 +2869,37 @@ dispatch(){
 # Arguments: None
 # Returns: 0
 # Globals: opt_alias, BOOK_PREF
-  __apply_alias(){
+  apply_alias(){
+    identify;
     if [[ -n "$opt_alias" ]]; then
-      BOOK_PREF="$opt_alias";
-      info "Running with alias: ${BOOK_PREF}"
+
+      if [[ "$opt_alias" == ^"bookdb"$ ]]; then
+        fatal "[ALIAS] You cannot use the default 'bookdb' name as an alias!";
+      else
+        BOOK_PREF="$opt_alias";
+        info "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
+        ALIAS_NAME='';
+        ALIAS_DB='';
+      fi
+    else
+      warn "Alias was not applied."
     fi
     return 0;
   }
 
+  is_alias(){
+
+    #check if BOOK_PATH != bookdb
+    if [[ "$BOOK_PATH" == "./bookdb" ||  "$BOOK_PATH" == "bookdb"  ]]; then
+      return 1;
+    else
+      imp "Is in ALIASED mode! ($BOOK_PATH)";
+      return 0;
+    fi
+  }
 
 
-
+    
 ################################################################################
 #
 #  main
@@ -2860,8 +2914,18 @@ main(){
   init;
 
   options "$@";
-  __apply_alias;
-  __init_xdg_paths; # Call the new alias function here
+
+  apply_alias;
+  is_alias;
+  #__init_xdg_paths; # Call the new alias function here
+
+  bootstrap;
+
+  select_db;
+
+  devlog "Pref is "$BOOK_PREF" post alias call ($BOOK_PATH)";
+
+
 
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
   if is_dev; then  imp "Dev Mode Enabled."; fi
@@ -2874,18 +2938,17 @@ main(){
     (help|usage) usage; exit 1; ;;
     (vers*) do_version; exit 0; ;;
     (inspect) do_inspect; exit $?; ;;
-    (install) do_install; exit $?; ;;
+    (install) __setup_dirs; do_install; exit $?; ;;
     (reset) do_reset; exit $?; ;;
     (checksum) dev_checksum; exit $?; ;;
     (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
   esac
 
-  bootstrap;
-  select_db;
+
 
   if [[ ! -f "${THIS_DB}" ]]; then
     if is_dev; then
-      log "DEV_MODE: Auto-installing on first run.";
+      dev "DEV_MODE: Auto-installing on first run.";
       do_install;
       if [[ $? -ne 0 ]]; then fatal "Initial auto-installation failed in DEV_MODE."; fi
     else
