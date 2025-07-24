@@ -11,3 +11,4 @@ docs/*
 # Except for README.md or COOL.md
 !README.md
 
+tmp/

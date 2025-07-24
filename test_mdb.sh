@@ -73,12 +73,13 @@ counter_inc(){ local c=$(countx 1 --name "$COUNTER"); printf "$c"; }
 
 
 # --- Setup ---
-set -e # Exit immediately on error
- BOOKDB_SCRIPT="./bookdb"; # Assumes bookdb is in the same directory
-readonly TEST_HOME="${HOME}/.test_bookdb_env"; # Isolated HOME for testing
+  set -e # Exit immediately on error
+  BOOKDB_SCRIPT="./bookdb"; # Assumes bookdb is in the same directory
+  mkdir -p "./tmp" > /dev/null;
+  readonly TEST_HOME="./tmp/.test_bookdb_env"; # Isolated HOME for testing
 
-USE_STDOUTT=1
-STDOUT_PRINTER=
+  USE_STDOUTT=1
+  STDOUT_PRINTER=
 
 
 # --- Simple Logger ---
@@ -122,18 +123,18 @@ main(){
 
 
     step "PHASE 1: INSTALLATION"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y $STDOUT_PRINTER;
     done_step;
     _ok "bookdb installed successfully"
     
 
     step "PHASE 2: BASE CREATION & SELECTION"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" new base --ns work $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" new base --ns work $STDOUT_PRINTER;
     done_step;
     _ok "Created new base 'work'"
 
 
-    run_with_dev_mode "${BOOKDB_SCRIPT}" select work $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" select work $STDOUT_PRINTER;
     done_step;
     _ok "Selected 'work' as active base"
 
@@ -142,7 +143,7 @@ main(){
     assert_contains "$base_output" "work" "Verified active base is 'work'"
 
     step "PHASE 3: CRUD IN CUSTOM BASE"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" new project --ns tickets $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" new project --ns tickets $STDOUT_PRINTER;
     done_step;
     _ok "Created project 'tickets' in 'work' base"
 
@@ -194,7 +195,7 @@ main(){
 
 
     step "PHASE 6: CLEANUP"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y $STDOUT_PRINTER >/dev/null
+    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y $STDOUT_PRINTER;
     _ok "bookdb reset successfully"
 
     if [ -d "${TEST_HOME}/.local/data/fx/bookdb" ]; then
@@ -213,38 +214,56 @@ main(){
     step "✅ MDB SMOKE TEST PASSED";
     done_step;
 
-    step "PHASE 7: ALIASING INSTALLATION & RESET"
+
+
+    #we need setup again due to prior rm
+    mkdir -p "${TEST_HOME}"
+    touch "${TEST_HOME}/.bashrc"
+    touch "${TEST_HOME}/.bashrc";
+
+
+
     local ALIAS_NAME="bookdb-v2";
     local ALIAS_SCRIPT="${TEST_HOME}/.local/bin/fx/${ALIAS_NAME}";
     local ALIAS_DATA_DIR="${TEST_HOME}/.local/data/fx/${ALIAS_NAME}";
 
+  
+    step "PHASE 7: ALIASING INSTALLATION & RESET";
+
     # Install with alias
     step "Installing aliased version: ${ALIAS_NAME}"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
+    done_step;
     _ok "Aliased script '${ALIAS_SCRIPT}' created."
     if [[ ! -f "${ALIAS_SCRIPT}" ]]; then
         _fail "Aliased script '${ALIAS_SCRIPT}' was not created."
     fi
-    done_step;
+  
 
     # Verify aliased command works independently
     step "Verifying aliased command independence"
     local alias_output=$(run_with_dev_mode "${ALIAS_SCRIPT}" setv ALIAS_TEST_KEY="Hello from alias" && run_with_dev_mode "${ALIAS_SCRIPT}" getv ALIAS_TEST_KEY);
-    assert_contains "${alias_output}" "Hello from alias" "Aliased command set/get value correctly."
     done_step;
+    assert_contains "${alias_output}" "Hello from alias" "Aliased command set/get value correctly."
+    
 
     # Verify original bookdb is unaffected
     step "Verifying original bookdb is unaffected"
-    local original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv ALIAS_TEST_KEY 2>&1 || echo ""); # Expecting empty or error
+    local original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv ALIAS_TEST_KEY 2>&1 || echo ""); 
+    done_step;
+
+    
+    # Expecting empty or error
     if [[ -n "${original_output}" && "${original_output}" != *"not found"* ]]; then
         _fail "Original bookdb was affected by aliased install. Output: ${original_output}"
     fi
     _ok "Original bookdb unaffected by aliased install."
-    done_step;
 
     # Reset aliased version
     step "Resetting aliased version: ${ALIAS_NAME}"
-    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER >/dev/null;
+    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER;
+    done_step;
+
     _ok "Aliased script '${ALIAS_SCRIPT}' removed."
     if [[ -f "${ALIAS_SCRIPT}" ]]; then
         _fail "Aliased script '${ALIAS_SCRIPT}' was not removed after reset."
@@ -253,13 +272,12 @@ main(){
         _fail "Aliased data directory '${ALIAS_DATA_DIR}' was not removed after reset."
     fi
     _ok "Aliased data directory '${ALIAS_DATA_DIR}' removed."
-    done_step;
 
     step "PHASE 8: FINAL SANITY CHECK OF ORIGINAL BOOKDB"
     # Re-run a simple command on original bookdb to ensure it's still functional
     local final_original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" status);
     assert_contains "${final_original_output}" "Active Database: main" "Original bookdb still functional after aliased operations."
-    done_step;
+
 
     step "✅ ALIASING SMOKE TEST PASSED";
     done_step;

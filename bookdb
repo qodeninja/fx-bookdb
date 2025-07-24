@@ -63,25 +63,41 @@
   _XDG_HOME="${HOME}/.local";
   _XDG_PREF="fx/${BOOK_PREF}";
 
-  readonly BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
+  # These are now defined in __init_xdg_paths
+  BOOK_LIB=;
+  BOOK_BIN=;
+  BOOK_ETC=;
+  BOOK_DATA=;
+  BOOK_STATE=;
+  BOOK_CACHE=;
+  BOOK_DB=;
+  BOOK_TEST_DB=;
+  BOOK_RC=;
+  BOOK_BASE_CURSOR=;
+  BOOK_CONTEXT_CURSOR=;
+  BOOK_LOCK=;
 
-  readonly BOOK_BIN="${_XDG_HOME}/bin/fx";
-  readonly BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
-  readonly BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; # XDG data do not change
-  readonly BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
-  readonly BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
+  __init_xdg_paths(){
+    _XDG_PREF="fx/${BOOK_PREF}";
+    BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
+    BOOK_BIN="${_XDG_HOME}/bin/fx";
+    BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
+    BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; # XDG data do not change
+    BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
+    BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
 
-  # db setup
-  readonly BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
-  readonly BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
+    # db setup
+    BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
+    BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
 
-  # rcfile and cursors
-  readonly BOOK_RC="${BOOK_ETC}/bookrc";
-  readonly BOOK_BASE_CURSOR="${BOOK_STATE}/base_cursor";
-  readonly BOOK_CONTEXT_CURSOR="${BOOK_STATE}/context_cursor"; 
+    # rcfile and cursors
+    BOOK_RC="${BOOK_ETC}/bookrc";
+    BOOK_BASE_CURSOR="${BOOK_STATE}/base_cursor";
+    BOOK_CONTEXT_CURSOR="${BOOK_STATE}/context_cursor"; 
 
-  # query lock
-  readonly BOOK_LOCK="${BOOK_STATE}/db.lock";
+    # query lock
+    BOOK_LOCK="${BOOK_STATE}/db.lock";
+  }
 
 #-------------------------------------------------------------------------------
 #  Context Variables (Initialized by Bootstrap/Context)
@@ -494,13 +510,18 @@ todo(){
 #
 ################################################################################
 # Description: Setup functions/printers to call early main phase.
+  # todo: depends on extral countx tool.  cleanup after debug
+  counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
+
   init(){
-    COUNTER=".count_bookdb";
-    # todo: depends on extral countx tool.  cleanup after debug
-    counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
-    imp "DEV MODE: $DEV_MODE";
-    line "$run_count";
+    #local run_count;
+    #COUNTER=".count_bookdb";
+    #local run_count=$(countx);
+    #imp "DEV MODE: $DEV_MODE";
+    #line "$run_count";
+    noop;
   }
+
 
 ################################################################################
 #
@@ -2833,16 +2854,17 @@ dispatch(){
 # Description: Primary entrypoint for the bookdb script.
 main(){
   local ret;
-  local run_count=$(counter);
+
 
   identify;
   init;
 
   options "$@";
-  __apply_alias; # Call the new alias function here
+  __apply_alias;
+  __init_xdg_paths; # Call the new alias function here
 
   if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
-  if is_dev; then  imp "Dev Mode Enabled. Safety Guards Disabled!"; fi
+  if is_dev; then  imp "Dev Mode Enabled."; fi
   trace "Args: ${ARGS[*]}";
 
   local cmd_pre_state="${ARGS[0]}";
