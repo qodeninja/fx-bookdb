@@ -1,9 +1,13 @@
-versions/*
-.counter
-GEMINI.md
-REQUIREMENTS.md
-ARCHITECTURE.md
-PILLARS.md
-RECOVERY.md
+.counter*
+
 bak*
+.bak/
 *.count*
+docs/*
+
+# Ignore all .md files
+*.md
+
+# Except for README.md or COOL.md
+!README.md
+

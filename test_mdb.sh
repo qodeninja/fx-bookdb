@@ -100,7 +100,7 @@ assert_contains() {
 
 run_with_dev_mode() {
   # The "$@" passes along all arguments perfectly
-  env DEV_MODE=0 "$@"
+  env HOME="${TEST_HOME}" DEV_MODE=0 "$@"
 }
 
 # --- Main Test Execution ---
@@ -211,6 +211,57 @@ main(){
     _ok "Test environment cleaned up"
 
     step "✅ MDB SMOKE TEST PASSED";
+    done_step;
+
+    step "PHASE 7: ALIASING INSTALLATION & RESET"
+    local ALIAS_NAME="bookdb-v2";
+    local ALIAS_SCRIPT="${TEST_HOME}/.local/bin/fx/${ALIAS_NAME}";
+    local ALIAS_DATA_DIR="${TEST_HOME}/.local/data/fx/${ALIAS_NAME}";
+
+    # Install with alias
+    step "Installing aliased version: ${ALIAS_NAME}"
+    run_with_dev_mode "${BOOKDB_SCRIPT}" install -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER >/dev/null;
+    _ok "Aliased script '${ALIAS_SCRIPT}' created."
+    if [[ ! -f "${ALIAS_SCRIPT}" ]]; then
+        _fail "Aliased script '${ALIAS_SCRIPT}' was not created."
+    fi
+    done_step;
+
+    # Verify aliased command works independently
+    step "Verifying aliased command independence"
+    local alias_output=$(run_with_dev_mode "${ALIAS_SCRIPT}" setv ALIAS_TEST_KEY="Hello from alias" && run_with_dev_mode "${ALIAS_SCRIPT}" getv ALIAS_TEST_KEY);
+    assert_contains "${alias_output}" "Hello from alias" "Aliased command set/get value correctly."
+    done_step;
+
+    # Verify original bookdb is unaffected
+    step "Verifying original bookdb is unaffected"
+    local original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" getv ALIAS_TEST_KEY 2>&1 || echo ""); # Expecting empty or error
+    if [[ -n "${original_output}" && "${original_output}" != *"not found"* ]]; then
+        _fail "Original bookdb was affected by aliased install. Output: ${original_output}"
+    fi
+    _ok "Original bookdb unaffected by aliased install."
+    done_step;
+
+    # Reset aliased version
+    step "Resetting aliased version: ${ALIAS_NAME}"
+    run_with_dev_mode "${BOOKDB_SCRIPT}" reset -y --alias "${ALIAS_NAME}" $STDOUT_PRINTER >/dev/null;
+    _ok "Aliased script '${ALIAS_SCRIPT}' removed."
+    if [[ -f "${ALIAS_SCRIPT}" ]]; then
+        _fail "Aliased script '${ALIAS_SCRIPT}' was not removed after reset."
+    fi
+    if [[ -d "${ALIAS_DATA_DIR}" ]]; then
+        _fail "Aliased data directory '${ALIAS_DATA_DIR}' was not removed after reset."
+    fi
+    _ok "Aliased data directory '${ALIAS_DATA_DIR}' removed."
+    done_step;
+
+    step "PHASE 8: FINAL SANITY CHECK OF ORIGINAL BOOKDB"
+    # Re-run a simple command on original bookdb to ensure it's still functional
+    local final_original_output=$(run_with_dev_mode "${BOOKDB_SCRIPT}" status);
+    assert_contains "${final_original_output}" "Active Database: main" "Original bookdb still functional after aliased operations."
+    done_step;
+
+    step "✅ ALIASING SMOKE TEST PASSED";
     done_step;
 }
 
