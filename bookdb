@@ -87,6 +87,7 @@
   BOOK_LOCK=;
 
   xdg_init(){
+    identify;
     XDG_PREF="fx/${BOOK_PREF}";
     BOOK_LIB="${XDG_HOME}/lib/fx/app"; # install directory
     BOOK_BIN="${XDG_HOME}/bin/fx";
@@ -124,7 +125,7 @@ BOOK_KVNS_NAME=;
 # --- New MDB Global State Variables ---
 # These will be set by the context resolution logic.
 THIS_BASE_NAME=;
-
+THIS_BASE_PATH=;
 # Global for pub/unpub operations
 _PUB_KEY=;
 _PUB_VALUE=;
@@ -227,7 +228,10 @@ line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 
 
 # force a function to identify itself
-identify(){ is_dev && stderr "${grey}⟡┄┄┄[${white2}${FUNCNAME[1]}${grey}]"; }
+identify(){ 
+  local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
+  is_dev && stderr "${grey}⟡┄┄┄[${white2}${FUNCNAME[1]}${grey}]${grey3}<-$f2"; 
+}
 
 magic(){ is_dev && stderr "${purple}${*}" "force"; }
 debug(){ is_dev && stderr "${cyan}${*}" "force"; }
@@ -251,6 +255,7 @@ trace(){
   local f1="${FUNCNAME[1]}" f2="${FUNCNAME[2]}" f3="${FUNCNAME[3]}";
   local nl same lf1="$f1"; 
   local last="$LAST_CMD";
+  local level="${#FUNCNAME[@]}";
 
   [ -n "$LAST_FUNC" ] && [[ "$LAST_FUNC" == "$f1" ]] && { same=0; } || { same=1; }
   [ -n "$LAST_CMD" ] && last="\n${grey3}[${cyan}↯ $last${grey3}]" || last="";
@@ -259,9 +264,9 @@ trace(){
   [ -z "$f2" ]  || f1="${orange}$f1" && f2="${grey3}<-$f2";
 
   if [ "$same" -eq 0 ]; then
-    str="\t${grey}└┄┄>>${green2}[${#FUNCNAME[@]}]${grey}";
+    str="\t${grey}└┄┄>> ${grey}";
   else
-    str="${last}${grey}\n${orange}λ${grey}┄┄┄[$f1${grey}] $f2${grey} \n\t┆\n\t└┄┄>"; #\t└⚀\n
+    str="${last}${grey}\n${orange}λ${grey}┄┄┄[$f1${grey}][$level] \n\t┆\n\t└┄┄>"; #\t└⚀\n
   fi
 
   stderr "  $str ${*}";
@@ -581,49 +586,7 @@ todo(){
 #  Core Internal Utilities
 #-------------------------------------------------------------------------------
 
-################################################################################
-#
-#  init
-#
-################################################################################
-# Description: Setup functions/printers to call early main phase.
-  # todo: depends on extral countx tool.  cleanup after debug
-  counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
 
-  init(){
-    #local run_count;
-    #COUNTER=".count_bookdb";
-    #local run_count=$(countx);
-    #imp "DEV MODE: $DEV_MODE";
-    #line "$run_count";
-    noop;
-  }
-
-
-################################################################################
-#
-#  bootstrap
-#
-################################################################################
-# Description: Initializes script environment, sources RC file if available.
-# Returns: 0 on success, 1 on failure.
-# Local Variables: ret
-bootstrap(){
-  identify;
-  local ret=1;
-  if is_file "$BOOK_RC"; then
-    source "$BOOK_RC";
-    ret=$?;
-  else
-    noimp "ignore missing rc file, BOOK_PROJECT_HOME will be undefined or default";
-    readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
-  fi
-  if is_dev; then
-    trace "Bookdb started from $BOOK_PATH";
-    [ -n "$TEST_MODE" ] && magic "Test Mode is enabled. <stdoutt> is active with --pr flag.";
-  fi
-  return "$ret";
-}
 
 ################################################################################
 #
@@ -736,18 +699,20 @@ select_db(){
   trace "book data path is $BOOK_DATA";
   local base_name;
 
+  # all the ways to set base name lol
+
   # Priority 1: Command-line override (opt_base_override) always takes precedence
   if [[ -n "$opt_base_override" ]]; then
-      base_name="${opt_base_override}";
+    base_name="${opt_base_override}";
   # Priority 2: Read from cursor file
   elif [[ -f "${BOOK_BASE_CURSOR}" ]]; then
-      base_name=$(cat "${BOOK_BASE_CURSOR}");
+    base_name=$(cat "${BOOK_BASE_CURSOR}");
   # Priority 3: TEST_MODE sets default base if no override
   elif [[ -n "$TEST_MODE" && "$TEST_MODE" -eq 0 ]]; then
-      base_name="${BOOK_TEST_BASE:-test}";
+    base_name="${BOOK_TEST_BASE:-test}";
   # Priority 4: Default to BOOK_DEFAULT_BASE
   else
-      base_name="${BOOK_DEFAULT_BASE}";
+    base_name="${BOOK_DEFAULT_BASE}";
   fi
 
   # Validate base_name and set global variables
@@ -755,9 +720,11 @@ select_db(){
       base_name="${BOOK_DEFAULT_BASE}"; # Fallback if resolved base is invalid/missing
   fi
 
+  # it has been decided
+
   THIS_BASE_NAME="${base_name}";
   THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
-  devlog "select_db: THIS_BASE_NAME set to ${THIS_BASE_NAME}";
+  itrace "select_db: selected (->${THIS_BASE_NAME})";
   return 0;
 }
 
@@ -968,8 +935,11 @@ __validate_name(){
 ################################################################################
 # Description: Takes a base name and returns its full, absolute path.
 __get_base_path(){
+  identify;
   local base_name="$1";
-  printf "%s" "${BOOK_DATA}/${base_name}.sqlite";
+  THIS_BASE_PATH=$(printf "%s" "${BOOK_DATA}/${base_name}.sqlite");
+  trace_found "Multibase Path -> $THIS_BASE_PATH";
+  echo "$THIS_BASE_PATH";
   return 0;
 }
 
@@ -2891,6 +2861,52 @@ dispatch(){
 
 ################################################################################
 #
+#  init
+#
+################################################################################
+# Description: Setup functions/printers to call early main phase.
+  # todo: depends on extral countx tool.  cleanup after debug
+  counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
+
+  init(){
+    identify;
+    #local run_count;
+    #COUNTER=".count_bookdb";
+    #local run_count=$(countx);
+    #imp "DEV MODE: $DEV_MODE";
+    #line "$run_count";
+    noop;
+  }
+
+
+################################################################################
+#
+#  bootstrap
+#
+################################################################################
+# Description: Initializes script environment, sources RC file if available.
+# Returns: 0 on success, 1 on failure.
+# Local Variables: ret
+bootstrap(){
+  identify;
+  local ret=1;
+  if is_file "$BOOK_RC"; then
+    ptrace "Sourcing BookRC ${BOOK_RC}";
+    source "$BOOK_RC";
+    ret=$?;
+  else
+    #noimp "ignore missing rc file, BOOK_PROJECT_HOME will be undefined or default";
+    readonly BOOK_PROJECT_HOME="${BOOK_PROJECT_HOME:-$(dirname "$BOOK_PATH")}";
+  fi
+  if is_dev; then
+    trace "Bookdb started from $BOOK_PATH";
+    [ -n "$TEST_MODE" ] && magic "Test Mode is enabled. <stdoutt> is active with --pr flag.";
+  fi
+  return "$ret";
+}
+
+################################################################################
+#
 #  __apply_alias
 #
 ################################################################################
@@ -2959,13 +2975,16 @@ main(){
 
   # Call xdg_init AFTER apply_alias to ensure XDG paths reflect the resolved BOOK_PREF (including alias handling).
   xdg_init;
-  dump_vars BOOK_;
+  #dump_vars BOOK_;
   dump_vars XDG_;
 
-  exit 1;  
+ 
   bootstrap;
 
   select_db;
+  dump_vars BOOK_;
+  exit 1; 
+
 
   devlog "Pref is "$BOOK_PREF" post alias call ($BOOK_PATH)";
 
