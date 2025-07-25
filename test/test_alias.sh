@@ -119,12 +119,16 @@ assert_contains() {
 }
 
 run_with_dev_mode() {
-  local book_pref_override="$1";
-  shift;
-  local cmd_to_run="env HOME=\"${TEST_HOME}\" TEST_MODE=0 DEV_MODE=0 \"$@\"";
-  info "DEBUG: Running command: $cmd_to_run" >&2; # Print to stderr for debugging
+  local bookdb_script_or_alias="$1"; # This is the actual script/alias to run (e.g., "./bookdb" or "chickendb")
+  shift; # Remove it from "$@"
+  local bookdb_command_args=("$@"); # Capture the rest of the arguments (e.g., "noop", "--printer stdoutt")
+
+  # Construct the command to be executed
+  local full_command=("${bookdb_script_or_alias}" "${bookdb_command_args[@]}");
+
+  info "DEBUG: Running command: env HOME=\"${TEST_HOME}\" TEST_MODE=0 DEV_MODE=0 ${full_command[*]}" >&2; # Print to stderr for debugging
   done_step;
-  env HOME="${TEST_HOME}" TEST_MODE=0 DEV_MODE=0 "$@"
+  env HOME="${TEST_HOME}" TEST_MODE=0 DEV_MODE=0 "${full_command[@]}"
 }
 
 test_runner(){
@@ -137,13 +141,18 @@ test_runner(){
 
 test_setup_and_cleanup() {
     counter_init;
-    step "PHASE 0: CLEANUP & SETUP"
+    step "PHASE 0: CLEANUP & SETUP (QUITE:$QUIET_MODE)"
     # Ensure a clean test environment every time
     rm -rf "./tmp";
     mkdir -p "./tmp" > /dev/null;
     export HOME="${TEST_HOME}";
     mkdir -p "${TEST_HOME}"
     touch "${TEST_HOME}/.bashrc"
+    info "DEBUG: Current working directory: $(pwd)";
+    info "DEBUG: Contents of TEST_HOME (${TEST_HOME}):";
+    ls -la "${TEST_HOME}" >&2;
+    info "DEBUG: Contents of TEST_HOME/.local: ";
+    ls -la "${TEST_HOME}/.local" >&2;
     _ok "Test environment created at ${TEST_HOME}"
     done_step;
 }
@@ -361,7 +370,7 @@ final_sanity_check_original_bookdb() {
 #-------------------------------------------------------------------------------
 
 run_all_tests() {
-    test_noop;
+    test_noop
     test_setup_and_cleanup
     test_installation
     test_base_creation_and_selection
