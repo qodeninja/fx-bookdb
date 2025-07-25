@@ -1,0 +1,9 @@
+
+
+
+ADM_TOOL_ALIAS="chicken"
+ADM_PROJECT_PNS="RECOVERY_ALIAS_FEATURE"
+ADM_PRD_DOCUMENT="UNAVAILABLE : ask User"
+ADM_TARGET_CODEBASE="./bookdb"
+ADM_NOTES="Test suites in process of migration to ./test folder. Cannot verify the functionality of the ADM_TOOL"
+ADM_LAST_STATUS="Conflicted. Alias Feature is mostly working, but problems with the test suite are bizarre. Troubleshooting strange issue with printers missing a newline when calling bookdb from test suites. Test suites must be verified and corrected."

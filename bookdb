@@ -229,7 +229,7 @@ line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 
 # force a function to identify itself
 identify(){ 
-  #local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
+  local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
   is_dev && stderr "${grey}⟡┄┄┄[${white2}${FUNCNAME[1]}${grey}]${grey3}<-$f2"; 
 }
 
@@ -266,7 +266,7 @@ trace(){
   if [ "$same" -eq 0 ]; then
     str="\t${grey}└┄┄>> ${grey}";
   else
-    str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}] \n\t┆\n\t└┄┄>"; #\t└⚀\n
+    str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}]$f2 \n\t┆\n\t└┄┄>"; #\t└⚀\n
   fi
 
   stderr "  $str ${*}";
@@ -1293,8 +1293,12 @@ __print_keystore_contents(){
 __find_shell_profile(){
   if is_file "$HOME/.bashrc"; then
     printf "%s" "$HOME/.bashrc";
+  elif is_file "$HOME/.bash_profile"; then
+    printf "%s" "$HOME/.bash_profile";
   elif is_file "$HOME/.zshrc"; then
     printf "%s" "$HOME/.zshrc";
+  elif is_file "$HOME/.zprofile"; then
+    printf "%s" "$HOME/.zprofile";
   elif is_file "$HOME/.profile"; then
     printf "%s" "$HOME/.profile";
   else
@@ -1948,6 +1952,12 @@ do_decv(){
 ################################################################################
 # Description: Permanently deletes all bookdb data and artifacts.
 do_reset(){
+  if is_alias; then
+    error "Cannot run 'reset' from an aliased version of bookdb.";
+    info "To reset an alias, run 'bookdb reset --alias <alias_name>' from the original 'bookdb' command.";
+    return 1;
+  fi
+
   local msg;
   identify;
 
@@ -2455,7 +2465,14 @@ dev_sanity(){
 # Arguments: None.
 # Returns: 0 if checksums match, 1 otherwise.
 dev_checksum(){
-  identify;
+
+    identify;
+    if is_alias; then
+      warn "Checksum verification is not applicable for an aliased command.";
+      info "An alias is a separate installation and is not expected to match the source script.";
+      return 0;
+    fi
+
     local ret=1; # Default to failure
     
 
@@ -2512,6 +2529,11 @@ dev_checksum(){
 # Description: Installs or updates the bookdb application using the Installer Pattern.
 do_install(){
   identify;
+  if is_alias; then
+    error "Cannot run 'install' from an aliased version of bookdb.";
+    info "Please run 'install' from the original 'bookdb' command.";
+    return 1;
+  fi
   local profile_file;
   __setup_dirs || return 1;
   profile_file=$(__find_shell_profile);
@@ -2916,6 +2938,36 @@ bootstrap(){
 # Arguments: None
 # Returns: 0
 # Globals: opt_alias, BOOK_PREF
+
+  apply_alias(){
+    identify;
+    local script_name;
+    script_name=$(basename "$BOOK_PATH");
+
+    # First, determine if we are running as an alias based on the script name.
+    if [[ "$script_name" != "bookdb" ]]; then
+      ptrace "[ALIAS] Inferred alias mode from script path: $script_name";
+      ALIAS_MODE=0; # Set the global flag to true (0)
+      BOOK_PREF="$script_name";
+      ALIAS_NAME=$BOOK_PREF;
+
+      # CRITICAL: If we are in alias mode, the --alias flag is illegal.
+      if [[ -n "$opt_alias" ]]; then
+        fatal "[ALIAS] Cannot create a new alias ('--alias $opt_alias') from an existing alias ('$ALIAS_NAME').";
+      fi
+
+    # If not running as an alias, check if the user WANTS to create one.
+    elif [[ -n "$opt_alias" ]]; then
+      if [[ "$opt_alias" == "bookdb" ]]; then
+        fatal "[ALIAS] You cannot use the default 'bookdb' name as an alias!";
+      fi
+      # Set the BOOK_PREF for the installer, but do NOT set ALIAS_MODE.
+      BOOK_PREF="$opt_alias";
+      ptrace "[ALIAS] Preparing to install new alias. PREF set to: ${BOOK_PREF}";
+    fi
+    return 0;
+  }
+
   apply_alias(){
     identify;
 
@@ -2923,9 +2975,12 @@ bootstrap(){
       # alias handoff we dont need --alias flag anymore
       wtrace "Inferred alias detected: $BOOK_PATH!";
       opt_alias=$(basename $BOOK_PATH);
-
+        ALIAS_NAME=$opt_alias;
+        ALIAS_MODE=0;
+        ALIAS_DB='';
     fi
 
+    # opt_alias is never used for anything
     if [[ -n "$opt_alias" ]]; then
 
       if [[ "$opt_alias" =~ ^bookdb$ ]]; then
@@ -2933,14 +2988,19 @@ bootstrap(){
       else
         BOOK_PREF="$opt_alias";
         ptrace "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
-        ALIAS_NAME=$BOOK_PREF;
-        ALIAS_MODE=0;
+
       fi
     else
       wtrace "Alias was not applied."
     fi
     return 0;
   }
+
+  is_alias(){
+    is_defined $ALIAS_MODE && [ $ALIAS_MODE -eq 0 ];
+  }
+    
+
 
   is_alias_bin(){
     identify;
@@ -2954,8 +3014,6 @@ bootstrap(){
     fi
   }
 
-
-    
 ################################################################################
 #
 #  main
@@ -2974,7 +3032,7 @@ main(){
 
   apply_alias;
 
-  if is_alias_bin; then 
+  if is_alias; then 
     noop;
   fi
 
@@ -2984,13 +3042,13 @@ main(){
   # Call xdg_init AFTER apply_alias to ensure XDG paths reflect the resolved BOOK_PREF (including alias handling).
   xdg_init;
   #dump_vars BOOK_;
-  dump_vars XDG_;
+  #dump_vars XDG_;
 
  
   bootstrap;
   todo "FIX multiple get_base_path calls";
   select_db;
-  dump_vars BOOK_;
+  #dump_vars BOOK_;
   # exit 1; 
 
 
