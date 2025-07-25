@@ -8,9 +8,9 @@
 #
 # Compatibility notes
 # portable: sqlite3, sed, awk, grep, cut, rm, mkdir, cp,
-#           mv, chmod, readlink, date, tar, mktemp, dirname, basename, read
+#  mv, chmod, readlink, date, tar, mktemp, dirname, basename, read
 # builtins: printf, local, readonly, source, case, if, while, test, unset,
-#           shift, exit, echo, command, cat
+#  shift, exit, echo, command, cat
 #
 
 	# @mark top
@@ -47,7 +47,7 @@
 	);
 
 #-------------------------------------------------------------------------------
-#  Flags 0=true and 1=false. Do not use true/false
+# Flags 0=true and 1=false. Do not use true/false
 #-------------------------------------------------------------------------------
 
 	[ -f "bookdb.conf" ] && source "bookdb.conf";
@@ -77,7 +77,7 @@
 	FLAGS_[auto_install]=$AUTO_INSTALL;
 
 #-------------------------------------------------------------------------------
-#  Auto Status, do not change manually.
+# Auto Status, do not change manually.
 #-------------------------------------------------------------------------------
 
 	ALIAS_MODE=1;
@@ -92,7 +92,7 @@
 
 
 #-------------------------------------------------------------------------------
-#  XDG+
+# XDG+
 #-------------------------------------------------------------------------------
 
 	# XDG+ Compliance
@@ -138,7 +138,7 @@
 	}
 
 #-------------------------------------------------------------------------------
-#  Context Variables (Initialized by Bootstrap/Context)
+# Context Variables (Initialized by Bootstrap/Context)
 #-------------------------------------------------------------------------------
 
 # Global array to hold arguments after options are parsed.
@@ -163,32 +163,33 @@ LAST_CMD=;
 COUNTER=;
 
 #-------------------------------------------------------------------------------
-#  Escape
+# Escape
 #-------------------------------------------------------------------------------
 
 	# STDERR escapes
-	readonly  red2=$'\x1B[38;5;197m';
-	readonly  red=$'\x1B[38;5;1m';
-	readonly  deep=$'\x1B[38;5;61m';
-	readonly  deep_green=$'\x1B[38;5;60m';
-	readonly  orange=$'\x1B[38;5;214m';
-	readonly  yellow=$'\x1B[33m';
+	readonly red2=$'\x1B[38;5;197m';
+	readonly red=$'\x1B[38;5;1m';
+	readonly deep=$'\x1B[38;5;61m';
+	readonly deep_green=$'\x1B[38;5;60m';
+	readonly orange=$'\x1B[38;5;214m';
+	readonly orange2=$'\x1B[38;5;221m';
+	readonly yellow=$'\x1B[33m';
 
-	readonly  green2=$'\x1B[32m';
-	readonly  green=$'\x1B[38;5;10m';
-	readonly  blue=$'\x1B[36m';
-	readonly  blue2=$'\x1B[38;5;39m';
-	readonly  cyan=$'\x1B[38;5;14m';
-	readonly  magenta=$'\x1B[35m';
+	readonly green2=$'\x1B[38;5;156m';
+	readonly green=$'\x1B[38;5;10m';
+	readonly blue=$'\x1B[36m';
+	readonly blue2=$'\x1B[38;5;39m';
+	readonly cyan=$'\x1B[38;5;51m';
+	readonly magenta=$'\x1B[35m';
 
-	readonly  purple=$'\x1B[38;5;213m';
-	readonly  purple2=$'\x1B[38;5;141m';
-	readonly  white=$'\x1B[38;5;247m';
-	readonly  white2=$'\x1B[38;5;15m';
-	readonly  grey=$'\x1B[38;5;242m';
-	readonly  grey2=$'\x1B[38;5;240m';
-	readonly  grey3=$'\x1B[38;5;237m';
-	readonly  xx=$'\x1B[0m';
+	readonly purple=$'\x1B[38;5;213m';
+	readonly purple2=$'\x1B[38;5;141m';
+	readonly white=$'\x1B[38;5;247m';
+	readonly white2=$'\x1B[38;5;15m';
+	readonly grey=$'\x1B[38;5;242m';
+	readonly grey2=$'\x1B[38;5;240m';
+	readonly grey3=$'\x1B[38;5;237m';
+	readonly xx=$'\x1B[0m';
 
 	readonly LINE="$(printf '%.0s-' {1..54})";
 
@@ -196,14 +197,14 @@ COUNTER=;
 
 ################################################################################
 #
-#  stderr
+# stderr
 #
 ################################################################################
 # Description: Controls output based on QUIET_MODE and force parameter.
 # Arguments:
-#   1: msg (string) - The message to print.
-#   2: force_output (string, optional) - Pass "force" to bypass QUIET_MODE (for error/fatal).
-#   3: is_error_level (string, optional) - Pass "error" for error/fatal messages, to ensure they always go to stderr.
+# 1: msg (string) - The message to print.
+# 2: force_output (string, optional) - Pass "force" to bypass QUIET_MODE (for error/fatal).
+# 3: is_error_level (string, optional) - Pass "error" for error/fatal messages, to ensure they always go to stderr.
 stderr(){
 	local msg="$1";
 	local force_output="$2";
@@ -219,10 +220,11 @@ stderr(){
 	# Otherwise (not in test override, or it's an error/fatal message),
 	# follow normal stderr quietness rules.
 	if [[ -z "$QUIET_MODE" ]] || [[ -n "$force_output" ]]; then
-		printf "%b" "${msg}${xx}\n" 1>&2;
+		printf "%b" "${msg}${xx}\n"  1>&2;
 	fi
 	return 0;
 }
+# note using | fmt -w 100 <-- needs fixing to work with our stderr.
 
 # stdoutt : Switch for stderr to use stdout instead (for test capture).
 # --printer stdoutt
@@ -234,14 +236,14 @@ stdoutt(){
 
 
 #-------------------------------------------------------------------------------
-#  Standard Printers with Tracing
+# Standard Printers with Tracing
 #-------------------------------------------------------------------------------
 
-fatal(){  stderr "${red}${*}" "force" "error"; exit 1; } #auto exit
+fatal(){ stderr "${red}${*}" "force" "error"; exit 1; } #auto exit
 error(){ stderr "${red}${*}" "force" "error"; }
-warn(){  stderr  "${orange}${*}"; }
-okay(){  stderr  "${green}${*}"; }
-info(){  stderr  "${blue}${*}"; }
+warn(){ stderr "${orange}${*}"; }
+okay(){ stderr "${green}${*}"; }
+info(){ stderr "${blue}${*}"; }
 
 
 # we generally dont use log but its here for completeness
@@ -251,7 +253,7 @@ line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 # todo: need trap support
 
 #-------------------------------------------------------------------------------
-#  Dev Only Printers
+# Dev Only Printers
 #-------------------------------------------------------------------------------
 
 
@@ -265,7 +267,7 @@ magic(){ is_dev && stderr "${purple}${*}" "force"; }
 debug(){ is_dev && stderr "${cyan}${*}" "force"; }
 
 # standard dev tree printer
-dev(){ is_dev && stderr "\n${cyan}>>  [${deep}${FUNCNAME[1]}${cyan}]\n\t└┄┄ ${*} " "force"; }
+dev(){ is_dev && stderr "\n${cyan}>> [${deep}${FUNCNAME[1]}${cyan}]\n\t└┄┄ ${*} " "force"; }
 
 devbar(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${LINE}" "force"; }
 devlog(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${1}" "force"; }
@@ -275,7 +277,7 @@ imp(){ is_dev && stderr "${red2}⨹ IMP! ${x}${*}" "force"; }
 
 
 #-------------------------------------------------------------------------------
-#  Advanced Printers
+# Advanced Printers
 #-------------------------------------------------------------------------------
 
 trace(){
@@ -289,7 +291,7 @@ trace(){
 	[ -n "$LAST_CMD" ] && last="\n${grey3}[${cyan}↯ $last${grey3}]" || last="";
 
 	# [ -z "$f3" ] && f3="✻";
-	[ -z "$f2" ]  || f1="${deep}$f1" && f2="${grey3}<-$f2";
+	[ -z "$f2" ] || f1="${deep}$f1" && f2="${grey3}<-$f2";
 
 	if [ "$same" -eq 0 ]; then
 		str="\t${grey}└┄┄>> ${grey}";
@@ -297,14 +299,14 @@ trace(){
 		str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}]$f2 \n\t┆\n\t└┄┄>"; #\t└⚀\n
 	fi
 
-	stderr "  $str ${*}";
+	stderr " $str ${*}";
 	LAST_FUNC="$lf1"; # track when function call ref switches
 
 
 }
 
 #-------------------------------------------------------------------------------
-#  Pretty Tracers
+# Pretty Tracers
 #-------------------------------------------------------------------------------
 
 _make_lbl(){
@@ -314,28 +316,28 @@ _make_lbl(){
 	printf "\t${col_str}└┄┄[ ${!col1}$lbl${col_str} ] ${white}${col0}";
 }
 
-ftrace(){ local __=$(_make_lbl "red" "fatal");  stderr "$__ ${*}" "force" "error"; }
-etrace(){ local __=$(_make_lbl "red" "error" "red");  stderr "$__ ${*}" "force" "error"; }
-wtrace(){ local __=$(_make_lbl "orange" "warn");  stderr "$__ ${*}"; }
-ptrace(){ local __=$(_make_lbl "green" "okay");  stderr "$__ ${*}"; }
-itrace(){ local __=$(_make_lbl "blue" "info");  stderr "$__ ${*}"; }
-mtrace(){ local __=$(_make_lbl "purple" "magic");  stderr "$__ ${*}"; }
+ftrace(){ local __=$(_make_lbl "red" "fatal"); stderr "$__ ${*}" "force" "error"; }
+etrace(){ local __=$(_make_lbl "red" "error" "red"); stderr "$__ ${*}" "force" "error"; }
+wtrace(){ local __=$(_make_lbl "orange2" "warn" "orange" ); stderr "$__ ${*}"; }
+ptrace(){ local __=$(_make_lbl "green2" "okay" "green"); stderr "$__ ${*}"; }
+itrace(){ local __=$(_make_lbl "cyan" "info" "blue"); stderr "$__ ${*}"; }
+mtrace(){ local __=$(_make_lbl "purple" "magic"); stderr "$__ ${*}"; }
 
-trace_add(){ local __=$(_make_lbl "green" "+");  stderr "$__ ${*}"; }
-trace_sub(){ local __=$(_make_lbl "red" "-");  stderr "$__ ${*}"; }
-trace_found(){ local __=$(_make_lbl "blue" "✻");  stderr "$__ ${*}"; }
-trace_done(){ local __=$(_make_lbl "green" "✔");  stderr "$__ ${*}"; }
-trace_item(){ local  __=$(_make_lbl "purple" "⟐");  stderr "$__ ${*}"; }
+trace_add(){ local __=$(_make_lbl "green" "+"); stderr "$__ ${*}"; }
+trace_sub(){ local __=$(_make_lbl "red" "-"); stderr "$__ ${*}"; }
+trace_found(){ local __=$(_make_lbl "blue" "✻"); stderr "$__ ${*}"; }
+trace_done(){ local __=$(_make_lbl "green" "✔"); stderr "$__ ${*}"; }
+trace_item(){ local __=$(_make_lbl "purple" "⟐"); stderr "$__ ${*}"; }
 
 
 
 #-------------------------------------------------------------------------------
-#  Shapes
+# Shapes
 #-------------------------------------------------------------------------------
 
 
 bar(){
-	local len="${1:-54}"; local char="${2:O}";  # Default to '-' if no character is provided
+	local len="${1:-54}"; local char="${2:O}"; # Default to '-' if no character is provided
 	local line_str;
 	printf -v line_str '%*s' "$len" '';
 	line_str=${line_str// /${char}};
@@ -347,7 +349,7 @@ dump_vars(){
 	identify;
 	if [[ $# -eq 0 ]]; then
 		echo "Usage: dump_prefixed_variables <PREFIX1> [PREFIX2...]" >&2
-		echo "  Example: dump_prefixed_variables BOOK_ XDG_" >&2
+		echo " Example: dump_prefixed_variables BOOK_ XDG_" >&2
 		return 1
 	fi
 
@@ -366,7 +368,7 @@ dump_vars(){
 		done < <(compgen -v)
 
 		if ! "$found_any"; then
-			echo "  No variables found with prefix '$prefix'."
+			echo " No variables found with prefix '$prefix'."
 		fi
 		echo
 	done
@@ -379,7 +381,7 @@ dump_buffer(){
 	if [ $len -gt 0 ]; then
 		for i in ${!arr[@]}; do
 			this="${arr[$i]}"
-			[ -n "$this" ] && printf -v "out" "$opt_dump_col(%d) %s\n$xx" "$i" "$this"
+			[ -n "$this" ] && printf -v "out" "$opt_dump_col(%d) %s$xx" "$i" "$this"
 			warn "$out"
 		done
 	fi
@@ -389,7 +391,7 @@ dump_buffer(){
 dump_assoc_array_kv() {
 	identify;
 	local -n arr_ref="$1" # Reference the associative array by name
-	local line            # Variable to store each formatted line
+	local line  # Variable to store each formatted line
 
 	for key in "${!arr_ref[@]}"; do
 		printf -v line "%s=%s" "$key" "${arr_ref[$key]}"
@@ -401,7 +403,7 @@ dump_assoc_array_kv() {
 
 
 #-------------------------------------------------------------------------------
-#  @Guards
+# @Guards
 #-------------------------------------------------------------------------------
 # lib function checks if a function is in scope
 is_function(){
@@ -410,12 +412,12 @@ is_function(){
 
 ################################################################################
 #
-#  __is_empty
+# __is_empty
 #
 ################################################################################
 # Description: Checks if a string is empty or contains only whitespace.
 # Arguments:
-#   1: str (string) - The string to check.
+# 1: str (string) - The string to check.
 # Returns: 0 (true) if empty/whitespace, 1 (false) otherwise.
 __is_empty(){
 	[[ -z "${1//[[:space:]]/}" ]];
@@ -424,14 +426,14 @@ __is_empty(){
 
 ################################################################################
 #
-#  is_empty
+# is_empty
 #
 ################################################################################
 # Description: Checks if any of the given variable NAMES (not values) are empty
-#              or contain only whitespace.
+#  or contain only whitespace.
 # Usage: is_empty "VAR_A" "VAR_B"
 # Arguments:
-#   @: var_name (string) - Names of variables to check.
+# @: var_name (string) - Names of variables to check.
 # Returns: 0 (true) if at least one is empty/whitespace, 1 (false) otherwise.
 is_empty(){
 	local var_name;
@@ -445,12 +447,12 @@ is_empty(){
 
 ################################################################################
 #
-#  is_defined
+# is_defined
 #
 ################################################################################
 # Description: Checks if a given string has a non-empty, non-whitespace value.
 # Arguments:
-#   1: str (string) - The string to check.
+# 1: str (string) - The string to check.
 # Returns: 0 (true) if defined, 1 (false) otherwise.
 is_defined(){
 	[[ -n "${1//[[:space:]]/}" ]];
@@ -459,27 +461,20 @@ is_defined(){
 
 # requires an existing variable with a non empty value uses var and not $var
 is_var_ref(){
-  local var_name="$1"
-  local -n var_ref="$var_name" # Use nameref to access the actual variable
-
-  # [[ -n "$var_ref" ]]
-  # This is the correct test for "defined AND non-empty"
-  # - If var_ref points to an unset variable, it expands to an empty string.
-  # - If var_ref points to an empty string (""), it expands to an empty string.
-  # - If var_ref points to a non-empty string ("hello"), it expands to "hello".
-  # -n checks if the expanded string is non-empty.
-  [[ -n "$var_ref" ]]
+	local var_name="$1";
+	local -n var_ref="$var_name"; # Use nameref to access the actual variable
+  [[ -n "$var_ref" ]]; 
 }
 
 
 ################################################################################
 #
-#  is_file
+# is_file
 #
 ################################################################################
 # Description: Checks if a given path exists and is a regular file.
 # Arguments:
-#   1: path (string) - The path to check.
+# 1: path (string) - The path to check.
 # Returns: 0 (true) if it's a file, 1 (false) otherwise.
 is_file(){
 	[ -n "$1" ] && test -f "$1";
@@ -487,21 +482,21 @@ is_file(){
 }
 
 # similar to is_var_ref
-is_dir_ref(){
-  local dir_name="$1"
-  local -n dir_ref="$dir_name" # Use nameref to access the actual variable
-  [[ -n "$dir_ref" ]] && [[ -d "$dir_ref" ]];
+is_dir_ref(){ 
+	local dir_name="$1";
+	local -n dir_ref="$dir_name" # Use nameref to access the actual variable 
+	[[ -n "$dir_ref" ]] && [[ -d "$dir_ref" ]];
 }
 
 ################################################################################
 #
-#  is_chain
+# is_chain
 #
 ################################################################################
 # Description: Checks if a given string starts with a context chain prefix
-#              (@ or %).
+#  (@ or %).
 # Arguments:
-#   1: str (string) - The string to check.
+# 1: str (string) - The string to check.
 # Returns: 0 (true) if it is a chain, 1 (false) otherwise.
 is_chain(){
 	# A valid context chain must start with @ or % AND contain a dot.
@@ -511,14 +506,14 @@ is_chain(){
 
 ################################################################################
 #
-#  is_rw_filepath
+# is_rw_filepath
 #
 ################################################################################
 # Description: Checks if a given file path is writable. This means the parent
-#              directory is writable, and if the file itself exists, it must
-#              also be writable.
+#  directory is writable, and if the file itself exists, it must
+#  also be writable.
 # Arguments:
-#   1: path (string) - The file path to check.
+# 1: path (string) - The file path to check.
 # Returns: 0 (true) if the path is writable, 1 (false) otherwise.
 is_rw_filepath(){
 	local path="$1";
@@ -535,13 +530,13 @@ is_rw_filepath(){
 
 ################################################################################
 #
-#  is_rw_file
+# is_rw_file
 #
 ################################################################################
 # Description: Checks if a given path exists and is a regular file that is
-#              both readable and writable.
+#  both readable and writable.
 # Arguments:
-#   1: path (string) - The path to check.
+# 1: path (string) - The path to check.
 # Returns: 0 (true) if it's a readable/writable file, 1 (false) otherwise.
 is_rw_file(){
 	[ -n "$1" ] && test -f "$1" -a -r "$1" -a -w "$1";
@@ -550,13 +545,13 @@ is_rw_file(){
 
 ################################################################################
 #
-#  is_name
+# is_name
 #
 ################################################################################
 # Description: Checks if ALL of the given variable NAMES have a non-empty value.
 # Usage: is_name "VAR_A" "VAR_B"
 # Arguments:
-#   @: var_name (string) - Names of variables to check.
+# @: var_name (string) - Names of variables to check.
 # Returns: 0 (true) if all have values, 1 (false) if any are empty.
 is_name(){
 	local var_name;
@@ -570,12 +565,12 @@ is_name(){
 
 ################################################################################
 #
-#  is_integer
+# is_integer
 #
 ################################################################################
 # Description: Checks if a given string is a valid integer (positive or negative).
 # Arguments:
-#   1: val (string) - The string to check.
+# 1: val (string) - The string to check.
 # Returns: 0 (true) if it is an integer, 1 (false) otherwise.
 is_integer(){
 	local val="$1";
@@ -586,7 +581,7 @@ is_integer(){
 }
 
 #-------------------------------------------------------------------------------
-#  @array - Bash 5 Features, note these functions use nameref (implicit _ref)
+# @array - Bash 5 Features, note these functions use nameref (implicit _ref)
 #-------------------------------------------------------------------------------
 
 
@@ -645,30 +640,15 @@ is_integer(){
 # usage:
 # 		 | > declare -a my_array
 # 		 | > array_from_glob "${DIR}/*.file" my_array
-array_from_glob() {
-  local glob_pattern="$1"        # The glob pattern as a string
-  local -n target_array="$2"     # Nameref to the array to be populated
-  # Use the glob pattern directly to populate the array
-  target_array=( $glob_pattern ) # Shell will expand $glob_pattern here
+array_from_glob() { local glob_pattern="$1" # The glob pattern as a string local -n target_array="$2" # Nameref to the array to be populated # Use the glob pattern directly to populate the array target_array=( $glob_pattern ) # Shell will expand $glob_pattern here
 }
 
 # converts an array to a pipeable stream via namerefs
 # usage: 
 # 		 | > stream_array arr | filter
-stream_array() {
-  local -n arr_ref="$1" # Use nameref to alias the passed array name
-
-  # Check if the nameref successfully points to an array
-  # This provides robustness against non-existent or non-array inputs.
-  # declare -p returns non-zero if variable doesn't exist or isn't array/scalar.
-  # We check for -a (indexed) or -A (associative) in the declare -p output.
-  if ! declare -p "${arr_ref@Q}" &>/dev/null || \
-     [[ ! "$(declare -p "${arr_ref@Q}" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then
-    error "Error: stream_array expects an array name as its argument." >&2
-    return 1; # Indicate error
-  fi
-
-  printf "%s\n" "${arr_ref[@]}";  # stream producer
+stream_array() { local -n arr_ref="$1" # Use nameref to alias the passed array name
+ # Check if the nameref successfully points to an array # This provides robustness against non-existent or non-array inputs. # declare -p returns non-zero if variable doesn't exist or isn't array/scalar. # We check for -a (indexed) or -A (associative) in the declare -p output. if ! declare -p "${arr_ref@Q}" &>/dev/null || \ [[ ! "$(declare -p "${arr_ref@Q}" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then error "Error: stream_array expects an array name as its argument." >&2 return 1; # Indicate error fi
+ printf "%s\n" "${arr_ref[@]}"; # stream producer
 }
 
 
@@ -725,19 +705,19 @@ stream_array() {
 	}
 
 #-------------------------------------------------------------------------------
-#  Core Internal Utilities
+# Core Internal Utilities
 #-------------------------------------------------------------------------------
 
 
 
 ################################################################################
 #
-#  has_base
+# has_base
 #
 ################################################################################
 # Description: Checks if a database with the given name exists.
 # Arguments:
-#   1: base_name (string) - The name of the base to check for.
+# 1: base_name (string) - The name of the base to check for.
 # Returns: 0 if the base exists, 1 otherwise.
 has_base(){
 	local base_name="$1";
@@ -750,13 +730,13 @@ has_base(){
 
 ################################################################################
 #
-#  has_project
+# has_project
 #
 ################################################################################
 # Description: Checks if a project with the given name exists in the
-#              CURRENTLY ACTIVE database.
+#  CURRENTLY ACTIVE database.
 # Arguments:
-#   1: project_name (string) - The name of the project to check for.
+# 1: project_name (string) - The name of the project to check for.
 # Returns: 0 if the project exists, 1 otherwise.
 has_project(){
 	local project_name="$1";
@@ -773,13 +753,13 @@ has_project(){
 
 ################################################################################
 #
-#  has_keystore
+# has_keystore
 #
 ################################################################################
 # Description: Checks if a keystore with the given name exists in the
-#              CURRENTLY ACTIVE project and database.
+#  CURRENTLY ACTIVE project and database.
 # Arguments:
-#   1: keystore_name (string) - The name of the keystore to check for.
+# 1: keystore_name (string) - The name of the keystore to check for.
 # Returns: 0 if the keystore exists, 1 otherwise.
 has_keystore(){
 	local keystore_name="$1";
@@ -796,13 +776,13 @@ has_keystore(){
 
 ################################################################################
 #
-#  has_key
+# has_key
 #
 ################################################################################
 # Description: Checks if a key with the given name exists in the
-#              CURRENTLY ACTIVE keystore, project, and database.
+#  CURRENTLY ACTIVE keystore, project, and database.
 # Arguments:
-#   1: key_name (string) - The name of the key to check for.
+# 1: key_name (string) - The name of the key to check for.
 # Returns: 0 if the key exists, 1 otherwise.
 has_key(){
 	local key_name="$1" key_id;
@@ -828,11 +808,11 @@ has_key(){
 
 ################################################################################
 #
-#  select_db
+# select_db
 #
 ################################################################################
 # Description: Sets the active database for the current command execution based on
-#              TEST_MODE or the persisted base cursor.
+#  TEST_MODE or the persisted base cursor.
 # Sets Global: THIS_DB, THIS_BASE_NAME
 # Returns: 0
 select_db(){
@@ -873,7 +853,7 @@ select_db(){
 
 ################################################################################
 #
-#  is_super_context (New Guard Function)
+# is_super_context (New Guard Function)
 #
 ################################################################################
 # Description: Checks if the target context is the indestructible GLOBAL.VAR.main.
@@ -889,11 +869,11 @@ is_super_context(){
 
 ################################################################################
 #
-#  __ensure_default_keystore_exists (New Low-Ordinal Helper)
+# __ensure_default_keystore_exists (New Low-Ordinal Helper)
 #
 ################################################################################
 # Description: Self-healing function to enforce the indestructible GLOBAL.VAR.main rule.
-#              Ensures the core project and keystore exist in the current database.
+#  Ensures the core project and keystore exist in the current database.
 __ensure_default_keystore_exists(){
 		# Ensure THIS_DB is set before running queries
 		if __is_empty "${THIS_DB}"; then
@@ -923,11 +903,11 @@ __ensure_default_keystore_exists(){
 
 ################################################################################
 #
-#  __ensure_default_base_exists (New Low-Ordinal Helper)
+# __ensure_default_base_exists (New Low-Ordinal Helper)
 #
 ################################################################################
 # Description: Self-healing function to ensure the default 'main.sqlite' base
-#              exists. If it doesn't, it creates it.
+#  exists. If it doesn't, it creates it.
 __ensure_default_base_exists(){
 		identify;
 		local default_base_path;
@@ -953,7 +933,7 @@ __require_invincible_defaults(){
 
 ################################################################################
 #
-#  is_dev
+# is_dev
 #
 ################################################################################
 # Description: Checks if DEV_MODE is enabled (0).
@@ -965,7 +945,7 @@ is_dev(){
 
 ################################################################################
 #
-#  is_user
+# is_user
 #
 ################################################################################
 # Description: Checks if user mode is enabled (DEV_MODE is not 0).
@@ -977,7 +957,7 @@ is_user(){
 
 ################################################################################
 #
-#  require_safe
+# require_safe
 #
 ################################################################################
 # Description: Checks if SAFE_MODE is enabled (0).
@@ -991,13 +971,13 @@ require_safe(){
 
 ################################################################################
 #
-#  __sed_in_place
+# __sed_in_place
 #
 ################################################################################
 # Description: Atomically applies a sed script to a file.
 # Arguments:
-#   1: sed_script (string) - The sed script to apply.
-#   2: target_file (string) - The file to modify.
+# 1: sed_script (string) - The sed script to apply.
+# 2: target_file (string) - The file to modify.
 # Returns: 0 on success, 1 on failure.
 # Local Variables: sed_script, target_file, tmp_file
 __sed_in_place(){
@@ -1033,14 +1013,14 @@ __sed_in_place(){
 
 ################################################################################
 #
-#  __validate_name
+# __validate_name
 #
 ################################################################################
 # Description: Validates if a string is a valid name for a key or namespace.
-#              (Rule: No dots allowed).
+#  (Rule: No dots allowed).
 # Arguments:
-#   1: name_to_check (string) - The name to validate.
-#   2: name_type (string) - A descriptive label for the name (e.g., "Key").
+# 1: name_to_check (string) - The name to validate.
+# 2: name_type (string) - A descriptive label for the name (e.g., "Key").
 # Returns: 0 (true) if valid, 1 (false) otherwise.
 # Local Variables: name_to_check, name_type
 __validate_name(){
@@ -1062,7 +1042,7 @@ __validate_name(){
 
 
 #-------------------------------------------------------------------------------
-#  @rcfile
+# @rcfile
 #-------------------------------------------------------------------------------
 # Description: Prints the content of the bookdb RC file if in dev mode.
 # Returns: 0 if printed or file doesn't exist, 1 otherwise.
@@ -1078,15 +1058,21 @@ dev_rc(){
 # (mid) convert a name to a path, requires valid datastore dir
 _get_base_path(){
 	identify;
-	local base_name="$1";
+	local ret=1 base_name="$1";
+	
 	if has_data_store; then
 		# datastore BOOK_DATA must be set
 		THIS_BASE_PATH=$(printf "%s" "${BOOK_DATA}/${base_name}.sqlite");
-		ptrace "Multibase Path -> set THIS_BASE_PATH (got=$THIS_BASE_PATH)";
-		return 0;
+		#ptrace "THIS_BASE_PATH (got=$THIS_BASE_PATH)";
+
+		echo "$THIS_BASE_PATH";
+		ret=0;
+	else
+		error "missing datastore!";
 	fi
+
 	# else has_data_store is fatal
-	return 1;
+	return $ret;
 }
 
 # BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
@@ -1107,14 +1093,35 @@ has_data_store(){
 
 # (low) get file glob for sqlite raw files general functions accepts root path
 __get_sqlite_stream(){
-	local arr;
-	local root="${1}"; # where to glob from
-	array_from_glob "${root}/*.sqlite" arr;	 #stream
-	printf "%s\n" "${arr[@]}";
+    identify
+    local root="${1}";
+
+    # A quick check to ensure we have a valid directory to work with.
+    if [[ ! -d "$root" ]]; then
+        error "Datastore path '$root' is not a valid directory."
+        return 1;
+    fi
+
+    # Use 'nullglob' to prevent errors if no files match.
+    # The glob will expand to nothing instead of the literal "*.sqlite".
+    shopt -s nullglob;
+
+    # This is the key: by including "$root" in the glob,
+    # the array is populated with absolute paths.
+    local -a files=("${root}"/*.sqlite);
+
+    # It's good practice to unset the option immediately after use.
+    shopt -u nullglob;
+
+    # If the array has elements, print them.
+    if (( ${#files[@]} > 0 )); then
+        printf "%s\n" "${files[@]}";
+    fi
 }
 
 # (low) takes a filepath to an sqlite file and returns its base name
 __get_base_name(){
+	identify;
 	local file filepath="$1"; 	# does not check for path existence only parses name
 	file=$(basename "${filepath}")
 	file=${file/\.sqlite/};	#remove the .sqlite extension
@@ -1152,20 +1159,70 @@ dev_dump_bases(){
 	echo "bases:$len:${bases[*]}"; #value can be used for testing
 }
 
+dev_show_sqlite(){
+	identify;
 
+	echo "$BOOK_DATA";
+	
+	#echo "DEBUG: BOOK_DATA is set to <$BOOK_DATA>"
+	#declare -p BOOK_DATA
+
+	__get_sqlite_stream "${BOOK_DATA}";
+	#array_from_glob "${BOOK_DATA}/*.sqlite" arr;	 #stream
+	#printf "%s\n" "${arr[@]}";
+	#ls "${BOOK_DATA}";
+
+}
+
+#-------------------------------------------------------------------------------
+# @fruit - start a new basefile
+#-------------------------------------------------------------------------------
+
+
+
+	BASE_LIST=( apple banana cherry durian elder fig guava honeydew \ 
+							imbe jackfruit kiwi lime mango orange pineapple \ 
+							quince raspberry strawberry tangerine uglifruit \
+							vanilla watermelon xigua yuzu zucchini );
+
+
+	random_pick_array(){
+		identify;
+		# Use a nameref to refer to the array passed by name.
+		local -n arr=$1
+
+		# Handle the edge case of an empty array to prevent a division-by-zero error.
+		if (( ${#arr[@]} == 0 )); then
+				echo "Error: Array is empty." >&2
+				return 1
+		fi
+
+		# Pick a random index from 0 to (size - 1) and echo the element.
+		echo "${arr[$((RANDOM % ${#arr[@]}))]}_$$" #adds pid for unique
+	}
+
+
+	dev_create_base(){
+		identify;
+		local base_name rand;
+		rand=$(random_pick_array BASE_LIST);
+		_create_base "$rand";
+	}
 
 #-------------------------------------------------------------------------------
 # @create_base - start a new basefile
 #-------------------------------------------------------------------------------
 
-
 _create_base(){
 	identify;
 
 	local base_name="$1";
-	local base_path;
+	local base_path ret;
 
 	base_path=$(_get_base_path "$base_name"); #requires BOOK_DATA to be valid
+
+	itrace "Datastore found sql (got=$base_path)";
+	# ex: mapfile -t bases < <(_list_filterd_bases); #correct load array from func
 
 	# System-level guard: check if file already exists
 	if [[ -f "${base_path}" ]]; then
@@ -1173,7 +1230,7 @@ _create_base(){
 		return 1;
 	fi
 
-	info "Base Path (got=${base_path})";
+	itrace "Base Path (got=${base_path})";
 
 
 
@@ -1186,21 +1243,23 @@ _create_base(){
 	touch "${base_path}" || { error "Failed to create database file: ${base_path}"; return 1; };
 
 	# Temporarily override THIS_DB to initialize the new base
-	local original_this_db="${THIS_DB}";
-	THIS_DB="${base_path}";
-	__setup_sql; # Create schema in the new database
-	local ret=$?;
-	THIS_DB="${original_this_db}"; # Restore original THIS_DB
+	local orig_db="${THIS_DB}";
 
-	if [[ $ret -eq 0 ]]; then
-		okay "Database '${base_name}' created and initialized successfully.";
-	fi
-	return ${ret};
+	THIS_DB="${base_path}";
+
+	__setup_sql; ret=$?; # Create new schema
+
+	THIS_DB="${orig_db}"; # Restore original THIS_DB
+
+	
+	[[ $ret -eq 0 ]] && ptrace "Database '${base_name}' created and initialized successfully.";
+
+	return $ret;
 }
 
 ################################################################################
 #
-#  _remove_base (Mid-Ordinal)
+# _remove_base (Mid-Ordinal)
 #
 ################################################################################
 # Description: Deletes a database file. Contains no user-level safety.
@@ -1221,7 +1280,7 @@ _remove_base(){
 }
 ################################################################################
 #
-#  __db_query
+# __db_query
 #
 ################################################################################
 
@@ -1277,11 +1336,11 @@ __db_query(){
 
 ################################################################################
 #
-#  __persist_cursor
+# __persist_cursor
 #
 ################################################################################
 # Description: Writes the current Project and Key-Value Namespace names to the
-#              cursor file for persistence across sessions.
+#  cursor file for persistence across sessions.
 __persist_cursor(){
 	local pns_name="$1";
 	local kvns_name="$2";
@@ -1295,11 +1354,11 @@ __persist_cursor(){
 
 ################################################################################
 #
-#  __backup_db
+# __backup_db
 #
 ################################################################################
 # Description: Performs a daily automatic backup of the database if SAFE_MODE
-#              is enabled and no backup has been performed yet today.
+#  is enabled and no backup has been performed yet today.
 __backup_db(){
 	if [[ "${SAFE_MODE}" -ne 0 || "${BACKED_UP}" -eq 0 ]]; then
 		return 0;
@@ -1334,7 +1393,7 @@ __backup_db(){
 
 ################################################################################
 #
-#  __confirm_action
+# __confirm_action
 #
 ################################################################################
 # Description: Prompts the user for confirmation before proceeding with an action.
@@ -1361,7 +1420,7 @@ __confirm_action(){
 
 ################################################################################
 #
-#  __resolve_context (Corrected)
+# __resolve_context (Corrected)
 #
 ################################################################################
 # Description: The central nervous system for context resolution.
@@ -1451,7 +1510,7 @@ __resolve_context(){
 
 ################################################################################
 #
-#  __write_keystore_to_file
+# __write_keystore_to_file
 #
 ################################################################################
 # Description: Generates and writes configuration content to a specified file.
@@ -1488,7 +1547,7 @@ __write_keystore_to_file(){
 
 ################################################################################
 #
-#  __print_keystore_contents
+# __print_keystore_contents
 #
 ################################################################################
 # Description: Queries and prints all key-value pairs for a given keystore.
@@ -1500,10 +1559,10 @@ __print_keystore_contents(){
 	local results=$(__db_query "${sql}" "-separator" "|");
 
 	if [[ -z "${results}" ]]; then
-			printf "      (empty)\n" >&2;
+			printf " (empty)\n" >&2;
 	else
 			echo "${results}" | while IFS="|" read -r key value; do
-					printf "    - %s = %s\n" "${key}" "${value}" >&2;
+					printf " - %s = %s\n" "${key}" "${value}" >&2;
 			done
 	fi
 	return 0;
@@ -1511,7 +1570,7 @@ __print_keystore_contents(){
 
 ################################################################################
 #
-#  __find_shell_profile
+# __find_shell_profile
 #
 ################################################################################
 # Description: Attempts to find the user's primary shell profile file.
@@ -1534,7 +1593,7 @@ __find_shell_profile(){
 
 ################################################################################
 #
-#  __link_to_profile
+# __link_to_profile
 #
 ################################################################################
 # Description: Adds a source line for the bookdb RC file to the user's shell profile.
@@ -1564,7 +1623,7 @@ __link_to_profile(){
 
 ################################################################################
 #
-#  __unlink_from_profile
+# __unlink_from_profile
 #
 ################################################################################
 # Description: Removes the bookdb source line from the user's shell profile.
@@ -1596,7 +1655,7 @@ __unlink_from_profile(){
 
 ################################################################################
 #
-#  do_ls
+# do_ls
 #
 ################################################################################
 # Description: Lists various database entities.
@@ -1620,7 +1679,7 @@ do_ls(){
 			else
 					info "Available Bases!:";
 					for base_name in "${all_bases[@]}"; do
-							local prefix="  ";
+							local prefix=" ";
 							if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
 									prefix="* ";
 							fi
@@ -1650,7 +1709,7 @@ do_ls(){
 
 ################################################################################
 #
-#  do_getv
+# do_getv
 #
 ################################################################################
 # Description: Retrieves and prints the value of a variable to stdout.
@@ -1666,7 +1725,7 @@ do_getv(){
 
 ################################################################################
 #
-#  do_setv
+# do_setv
 #
 ################################################################################
 # Description: Creates or updates a variable in the active context.
@@ -1693,7 +1752,7 @@ do_setv(){
 
 ################################################################################
 #
-#  do_delv
+# do_delv
 #
 ################################################################################
 # Description: Deletes a variable from the active context after confirmation.
@@ -1713,7 +1772,7 @@ do_delv(){
 
 ################################################################################
 #
-#  do_find
+# do_find
 #
 ################################################################################
 # Description: Finds keys across all projects/keystores matching a pattern.
@@ -1731,7 +1790,7 @@ do_find(){
 	else
 		info "Found matching keys in the following contexts:";
 		echo "${results}" | while IFS=, read -r pns kvns key; do
-			info "  @%s.VAR.%s -> %s" "${pns}" "${kvns}" "${key}";
+			info " @%s.VAR.%s -> %s" "${pns}" "${kvns}" "${key}";
 		done
 		return 0;
 	fi
@@ -1740,7 +1799,7 @@ do_find(){
 
 ################################################################################
 #
-#  do_select_base (New High-Ordinal)
+# do_select_base (New High-Ordinal)
 #
 ################################################################################
 # Description: Updates the base_cursor file to change the persistent active base.
@@ -1762,7 +1821,7 @@ do_select_base(){
 
 ################################################################################
 #
-#  do_current_base (New High-Ordinal)
+# do_current_base (New High-Ordinal)
 #
 ################################################################################
 # Description: Prints the active base name.
@@ -1775,7 +1834,7 @@ do_current_base(){
 
 ################################################################################
 #
-#  do_rebase (New High-Ordinal)
+# do_rebase (New High-Ordinal)
 #
 ################################################################################
 # Description: Deletes and recreates a base in a pristine state.
@@ -1797,7 +1856,7 @@ do_rebase(){
 
 ################################################################################
 #
-#  do_unbase (New High-Ordinal)
+# do_unbase (New High-Ordinal)
 #
 ################################################################################
 # Description: Deletes the specified .sqlite file.
@@ -1830,7 +1889,7 @@ do_unbase(){
 
 ################################################################################
 #
-#  ___new_project (Internal Helper)
+# ___new_project (Internal Helper)
 #
 ################################################################################
 # Description: Internal helper to create a project and its default MAIN keystore.
@@ -1853,13 +1912,13 @@ ___new_project(){
 
 ################################################################################
 #
-#  do_new
+# do_new
 #
 ################################################################################
 # Description: High-order dispatcher for creating new entities (base, project, keyval).
 # Arguments:
-#   1: what (string) - "base", "project", or "keyval".
-#   2...: name (string, optional) - The name of the entity to create.
+# 1: what (string) - "base", "project", or "keyval".
+# 2...: name (string, optional) - The name of the entity to create.
 # Returns: Exit status of the called helper function.
 do_new(){
 	local what="$1";
@@ -1922,7 +1981,7 @@ _do_new_keyval(){
 
 ################################################################################
 #
-#  do_del
+# do_del
 #
 ################################################################################
 # Description: Deletes a project or key-value namespace after confirmation.
@@ -1954,7 +2013,7 @@ do_del(){
 
 ################################################################################
 #
-#  do_backup
+# do_backup
 #
 ################################################################################
 # Description: Creates a full, manual backup of the bookdb installation structure.
@@ -1978,7 +2037,7 @@ do_backup(){
 
 ################################################################################
 #
-#  do_cursor
+# do_cursor
 #
 ################################################################################
 # Description: Prints the current active cursor chain to stderr.
@@ -1990,28 +2049,28 @@ do_cursor(){
 
 ################################################################################
 #
-#  do_status
+# do_status
 #
 ################################################################################
 # Description: Displays a dashboard with core file paths and system state.
 do_status(){
 	info "### BookDB (Multi-Base) Status ###";
-	info "  Active Database: ${THIS_BASE_NAME} ${THIS_DB}";
-	info "  Context Cursor:  ${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-	info "  Projects in Active Base:";
+	info " Active Database: ${THIS_BASE_NAME} ${THIS_DB}";
+	info " Context Cursor: ${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
+	info " Projects in Active Base:";
 
 	local projects=$(__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;");
 	if [[ -n "${projects}" ]]; then
-		echo "${projects}" | while IFS= read -r line; do info "    - ${line}"; done
+		echo "${projects}" | while IFS= read -r line; do info " - ${line}"; done
 	else
-		info "    (No projects found)";
+		info " (No projects found)";
 	fi
 	return 0;
 }
 
 ################################################################################
 #
-#  __pub_parse_source
+# __pub_parse_source
 #
 ################################################################################
 # Description: Helper to parse the source argument for pub/unpub commands.
@@ -2045,7 +2104,7 @@ __pub_parse_source(){
 
 ################################################################################
 #
-#  ___pub_unlink_key
+# ___pub_unlink_key
 #
 ################################################################################
 # Description: Helper to remove a key-value pair line from a file using sed.
@@ -2060,7 +2119,7 @@ ___pub_unlink_key(){
 
 ################################################################################
 #
-#  do_pub
+# do_pub
 #
 ################################################################################
 # Description: Publishes a single key-value pair to an external file.
@@ -2097,7 +2156,7 @@ do_pub(){
 
 ################################################################################
 #
-#  do_unpub
+# do_unpub
 #
 ################################################################################
 # Description: Removes a published key-value pair from an external file.
@@ -2122,7 +2181,7 @@ do_unpub(){
 
 ################################################################################
 #
-#  do_incv
+# do_incv
 #
 ################################################################################
 # Description: Increments a numerical variable in the active context.
@@ -2147,7 +2206,7 @@ do_incv(){
 
 ################################################################################
 #
-#  do_decv
+# do_decv
 #
 ################################################################################
 # Description: Decrements a numerical variable in the active context.
@@ -2172,7 +2231,7 @@ do_decv(){
 
 ################################################################################
 #
-#  do_reset
+# do_reset
 #
 ################################################################################
 # Description: Permanently deletes all bookdb data and artifacts.
@@ -2223,7 +2282,7 @@ do_reset(){
 
 ################################################################################
 #
-#  Reset Helpers (Low-Ordinal)
+# Reset Helpers (Low-Ordinal)
 #
 ################################################################################
 
@@ -2250,13 +2309,13 @@ __reset_cursors(){
 
 ################################################################################
 #
-#  do_migrate
+# do_migrate
 #
 ################################################################################
 # Description: Exports all keystores to individual .env files.
 ################################################################################
 #
-#  do_migrate
+# do_migrate
 #
 ################################################################################
 # Description: Exports all keystores to individual .env files.
@@ -2296,7 +2355,7 @@ do_migrate(){
 				for kvns in ${keystores_in_project}; do
 						local filename="${base_export_dir}/${pns}_${kvns}.env";
 						local _name=$(basename ${filename});
-						info "  -> Exporting ${pns}/${kvns} to $_name";
+						info " -> Exporting ${pns}/${kvns} to $_name";
 						__write_keystore_to_file "${pns}" "${kvns}" "${filename}";
 						if [[ $? -ne 0 ]]; then ret=1; fi
 				done;
@@ -2313,7 +2372,7 @@ do_migrate(){
 
 ################################################################################
 #
-#  do_export
+# do_export
 #
 ################################################################################
 # Description: Exports a specific keystore to a .env file.
@@ -2328,7 +2387,7 @@ do_export(){
 
 ################################################################################
 #
-#  do_import
+# do_import
 #
 ################################################################################
 # Description: Imports keys from a .env file into a specified or inferred context.
@@ -2350,10 +2409,10 @@ do_import(){
 		case "$key" in
 			# todo: missing legacy filter functionality -- regression
 			# import_alt implements this correctly but doesnt have multibase support
-			(_BOOKDB_CHAIN_)    T_chain="${val}"; continue ;;
+			(_BOOKDB_CHAIN_) T_chain="${val}"; continue ;;
 			(_BOOKDB_WRITEMODE_) T_writemode="${val}"; continue ;;
 			# (_BOOKDB_KEYSTORE_) T_keystore="${val}"; continue ;; # added here as a reminder
-			# (_BOOKDB_FILTER_)   T_filter="${val}"; continue ;; # filter needs the sub dispatcher for scope,prefix,etc
+			# (_BOOKDB_FILTER_) T_filter="${val}"; continue ;; # filter needs the sub dispatcher for scope,prefix,etc
 		esac
 		if __validate_name "$key" "Key from file"; then
 			keys_to_import+=("$key");
@@ -2386,7 +2445,7 @@ do_import(){
 	printf "The following ${#keys_to_import[@]} keys will be imported into context:\n" >&2;
 	printf "${yellow}@%s.VAR.%s${xx} with write mode: %s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${T_writemode}" >&2;
 	printf "%s\n" "$LINE" >&2;
-	for key in "${keys_to_import[@]}"; do printf "  - %s\n" "$key" >&2; done
+	for key in "${keys_to_import[@]}"; do printf " - %s\n" "$key" >&2; done
 	printf "%s\n" "$LINE" >&2;
 
 	if __confirm_action "Proceed with import?"; then
@@ -2438,8 +2497,8 @@ do_import_alt(){
 		# Parse special bookdb metadata keys
 		case "$key" in
 			(_BOOKDB_KEYSTORE_) T_keystore="${val}"; continue ;;
-			(_BOOKDB_CHAIN_)    T_chain="${val}"; continue ;;
-			(_BOOKDB_FILTER_)   T_filter="${val}"; continue ;;
+			(_BOOKDB_CHAIN_) T_chain="${val}"; continue ;;
+			(_BOOKDB_FILTER_) T_filter="${val}"; continue ;;
 			(_BOOKDB_WRITEMODE_) T_writemode="${val}"; continue ;;
 		esac
 
@@ -2527,7 +2586,7 @@ do_import_alt(){
 	printf "The following ${#filtered_keys[@]} keys will be imported into context:\n" >&2;
 	printf "${yellow}@%s.VAR.%s${xx} with write mode: %s${xx}\n" "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}" "${T_writemode}" >&2;
 	printf "%s\n" "$LINE" >&2;
-	for key in "${filtered_keys[@]}"; do printf "  - %s\n" "$key" >&2; done
+	for key in "${filtered_keys[@]}"; do printf " - %s\n" "$key" >&2; done
 	printf "%s\n" "$LINE" >&2;
 	if __confirm_action "Proceed with import?"; then
 		log "Importing keys...";
@@ -2555,7 +2614,7 @@ do_import_alt(){
 
 ################################################################################
 #
-#  __setup_sql
+# __setup_sql
 #
 ################################################################################
 # Description: Creates or verifies the SQLite database schema for bookdb.
@@ -2570,7 +2629,7 @@ __setup_sql(){
 	local sql_create_kvns="CREATE TABLE IF NOT EXISTS keyval_ns (kvns_id INTEGER PRIMARY KEY, kvns_name TEXT NOT NULL, pns_id_fk INTEGER, FOREIGN KEY(pns_id_fk) REFERENCES project_ns(pns_id) ON DELETE CASCADE, UNIQUE(kvns_name, pns_id_fk));";
 	local sql_create_vars="CREATE TABLE IF NOT EXISTS vars (var_id INTEGER PRIMARY KEY, var_key TEXT NOT NULL, var_value TEXT, var_updated INTEGER, kvns_id_fk INTEGER, FOREIGN KEY(kvns_id_fk) REFERENCES keyval_ns(kvns_id) ON DELETE CASCADE);";
 
-	__db_query "${sql_create_pns}"  || fatal "Failed to create table: project_ns";
+	__db_query "${sql_create_pns}" || fatal "Failed to create table: project_ns";
 	__db_query "${sql_create_kvns}" || fatal "Failed to create table: keyval_ns";
 	__db_query "${sql_create_vars}" || fatal "Failed to create table: vars";
 
@@ -2582,7 +2641,7 @@ __setup_sql(){
 
 ################################################################################
 #
-#  __setup_dirs
+# __setup_dirs
 #
 ################################################################################
 # Description: Creates all necessary XDG+ compliant directories for bookdb.
@@ -2595,7 +2654,7 @@ __setup_dirs(){
 
 ################################################################################
 #
-#  __setup_confirm
+# __setup_confirm
 #
 ################################################################################
 # Description: Confirms installation actions with the user (unless in dev mode).
@@ -2609,12 +2668,12 @@ __setup_confirm(){
 
 	if is_user; then
 		info "The installer will perform the following actions:\n";
-		printf "  1. Create directories in: %s\n" "${_XDG_HOME}" >&2;
-		printf "  2. Copy script to:        %s\n" "${BOOK_LIB}/${BOOK_PREF}" >&2;
-		printf "  3. Create symlink:        %s\n" "${BOOK_BIN}/${BOOK_PREF}" >&2;
-		printf "  4. Create RC file:        %s\n" "${BOOK_RC}" >&2;
-		printf "  5. Add source line to:    %s\n" "${profile_file}" >&2;
-		printf "  6. Initialize database:   %s\n" "${BOOK_DB}" >&2;
+		printf " 1. Create directories in: %s\n" "${_XDG_HOME}" >&2;
+		printf " 2. Copy script to: %s\n" "${BOOK_LIB}/${BOOK_PREF}" >&2;
+		printf " 3. Create symlink: %s\n" "${BOOK_BIN}/${BOOK_PREF}" >&2;
+		printf " 4. Create RC file: %s\n" "${BOOK_RC}" >&2;
+		printf " 5. Add source line to: %s\n" "${profile_file}" >&2;
+		printf " 6. Initialize database: %s\n" "${BOOK_DB}" >&2;
 
 		if ! __confirm_action "Proceed with installation/update?"; then log "Action cancelled."; return 1; fi
 	else
@@ -2625,7 +2684,7 @@ __setup_confirm(){
 
 ################################################################################
 #
-#  _get_rc_template
+# _get_rc_template
 #
 ################################################################################
 # Description: Prints the content for the bookdb RC file.
@@ -2645,7 +2704,7 @@ EOF
 
 ################################################################################
 #
-#  dev_sanity
+# dev_sanity
 #
 ################################################################################
 # Description: Performs various checks to verify the bookdb installation state.
@@ -2682,11 +2741,11 @@ dev_sanity(){
 
 ################################################################################
 #
-#  dev_checksum
+# dev_checksum
 #
 ################################################################################
 # Description: Compares the checksum of the source script against the
-#              installed version in XDG_LIB to verify they are identical.
+#  installed version in XDG_LIB to verify they are identical.
 # Arguments: None.
 # Returns: 0 if checksums match, 1 otherwise.
 dev_checksum(){
@@ -2709,7 +2768,7 @@ dev_checksum(){
 		local dest_path="${BOOK_LIB}/${BOOK_PREF}";
 
 		debug "Comparing script checksums...";
-		trace "SRC:  $src_path";
+		trace "SRC: $src_path";
 		trace "DEST: $dest_path";
 
 		# Guard against missing files
@@ -2729,8 +2788,8 @@ dev_checksum(){
 		local dest_sum;
 		dest_sum=$(sha256sum "$dest_path" | awk '{print $1}');
 
-		trace "Source Checksum:      $src_sum";
-		trace "Installed Checksum:   $dest_sum";
+		trace "Source Checksum: $src_sum";
+		trace "Installed Checksum: $dest_sum";
 
 		# Compare checksums
 		if [[ "${src_sum}" == "${dest_sum}" ]]; then
@@ -2748,7 +2807,7 @@ dev_checksum(){
 
 ################################################################################
 #
-#  do_install
+# do_install
 #
 ################################################################################
 # Description: Installs or updates the bookdb application using the Installer Pattern.
@@ -2809,7 +2868,7 @@ do_install(){
 
 ################################################################################
 #
-#  do_tables
+# do_tables
 #
 ################################################################################
 # Description: Lists all tables in the active database.
@@ -2822,7 +2881,7 @@ do_tables(){
 
 ################################################################################
 #
-#  do_tdump
+# do_tdump
 #
 ################################################################################
 # Description: Dumps the contents of a specific table in the active database.
@@ -2838,7 +2897,7 @@ do_tdump(){
 
 ################################################################################
 #
-#  __clean_install
+# __clean_install
 #
 ################################################################################
 # Description: Performs a clean installation by first resetting, then installing.
@@ -2855,7 +2914,7 @@ __clean_install(){
 
 ################################################################################
 #
-#  __sample_queries
+# __sample_queries
 #
 ################################################################################
 # Description: Inserts sample data into the database for development and testing.
@@ -2890,7 +2949,7 @@ INS_INTO_VARS="INSERT OR IGNORE INTO vars (var_key, var_value, kvns_id_fk) VALUE
 
 ################################################################################
 #
-#  do_dev_setup
+# do_dev_setup
 #
 ################################################################################
 # Description: Sets up a developer environment with a clean install and sample data.
@@ -2923,7 +2982,7 @@ dev_setup(){
 
 ################################################################################
 #
-#  options
+# options
 #
 ################################################################################
 # Description: Parses command-line arguments, correctly handling context chains and flags.
@@ -2989,13 +3048,13 @@ options(){
 
 ################################################################################
 #
-#  __print_in_columns (Low-Ordinal Helper)
+# __print_in_columns (Low-Ordinal Helper)
 #
 ################################################################################
 # Description: Reads a list from stdin and formats it into fixed-width columns.
 # Arguments:
-#   1: num_cols (integer) - The number of columns to print.
-#   2: col_width (integer) - The width of each individual column.
+# 1: num_cols (integer) - The number of columns to print.
+# 2: col_width (integer) - The width of each individual column.
 # Returns: 0.
 # used exclusively with do_inspect but can be used elsewhere
 __print_in_columns() {
@@ -3030,7 +3089,7 @@ __print_in_columns() {
 }
 
 #-------------------------------------------------------------------------------
-#  @inspect
+# @inspect
 #-------------------------------------------------------------------------------
 
 __low_inspect(){
@@ -3047,7 +3106,7 @@ __low_inspect(){
 	declare -F \
 		| awk '{print $3}' \
 		| grep -E "$pattern" \
-		| sed 's/^/  /' \
+		| sed 's/^/ /' \
 		| sort
 }
 
@@ -3071,7 +3130,7 @@ __raw_inspect_dispatch(){
 		| grep -oE '^\s*\(([^)]+)\)' \
 		| sed 's/[()]/ /g' \
 		| tr '|' '\n' \
-		| awk '{$1=$1;print "  "$0}';
+		| awk '{$1=$1;print " "$0}';
 }
 
 __inspect_dispatch(){
@@ -3082,7 +3141,7 @@ __inspect_dispatch(){
 		| grep -oE '^\s*\(([^)]+)\)' \
 		| sed 's/[()]/ /g' \
 		| tr '|' '\n' \
-		| awk '{$1=$1;print "  "$0}' \
+		| awk '{$1=$1;print " "$0}' \
 		| sort -u \
 		| __print_in_columns 4 20;
 	line;
@@ -3097,7 +3156,7 @@ do_inspect(){
 }
 
 #-------------------------------------------------------------------------------
-#  @disaptch
+# @disaptch
 #-------------------------------------------------------------------------------
 # Description: Routes commands to their corresponding functions.
 dispatch(){
@@ -3132,7 +3191,7 @@ dispatch(){
 		(new) do_new "${ARGS[@]:1}"; ret=$?; ;;
 		(del) do_del "${ARGS[@]:1}"; ret=$?; ;;
 		(pub) do_pub "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
-		(unpub)   do_unpub "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
+		(unpub) do_unpub "${ARGS[1]}" "${ARGS[2]}"; ret=$?; ;;
 		(tables) do_tables; ret=$?; ;;
 		(tdump) do_tdump "${ARGS[1]}"; ret=$?; ;;
 		(reset) do_reset; ret=$?; ;;
@@ -3149,7 +3208,7 @@ dispatch(){
 }
 
 #-------------------------------------------------------------------------------
-#  @devsub
+# @devsub
 #-------------------------------------------------------------------------------
 
 dev_sub_call(){
@@ -3160,9 +3219,9 @@ dev_sub_call(){
 	# first shift the dispatch command off
 		shift;
 		cmd="$1"
-		shift;
+
 		DID_DEV_SUB=1;
-		mtrace "args: 1[ $1 ]  2[ $2 ]  3[ $3 ]  4[ $4 ]  5[ $5 ]";
+		mtrace "args: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ]";
 		line "Start DEV";
 
 
@@ -3187,30 +3246,22 @@ dev_sub_call(){
 		fi
 	fi
 
-	info "(got=$cmd, sub=$sub, dev=$devsub)";
+	#info "(got=$cmd, sub=$sub, dev=$devsub)";
 	[ -n "$res" ] && dev "Debug Response -> $res";
+	[ -z "$res" ] && wtrace "Passive Call, return only ($ret)";
 	echo "$res";
 
 	line "End DEV";
-	# case "$cmd_pre_state" in
-	#   (rc) dev_rc; exit 0; ;;
-	#   (help|usage) usage; exit 1; ;;
-	#   (vers*) do_version; exit 0; ;;
-	#   (inspect) do_inspect; exit $?; ;;
-	#   (install) do_install; exit $?; ;;
-	#   (reset) do_reset; exit $?; ;;
-	#   (checksum) dev_checksum; exit $?; ;;
-	#   (dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
-	# esac
+
 	info "Return $ret";
 	exit $ret;
 }
 
 #-------------------------------------------------------------------------------
-#  @init
+# @init
 #-------------------------------------------------------------------------------
 # Description: Setup functions/printers to call early main phase.
-	# todo: depends on extral countx tool.  cleanup after debug
+	# todo: depends on extral countx tool. cleanup after debug
 	counter(){ local c=$(countx --name "$COUNTER"); printf "$c"; }
 
 	init(){
@@ -3225,7 +3276,7 @@ dev_sub_call(){
 
 
 #-------------------------------------------------------------------------------
-#  @bootstrap
+# @bootstrap
 #-------------------------------------------------------------------------------
 # Description: Initializes script environment, sources RC file if available.
 # Returns: 0 on success, 1 on failure.
@@ -3249,11 +3300,11 @@ bootstrap(){
 }
 
 #-------------------------------------------------------------------------------
-#  @alias
+# @alias
 #-------------------------------------------------------------------------------
 # Description: If an alias is provided via the --alias flag, this function
-#              overrides the BOOK_PREF variable to namespace the installation.
-#              This is the core of the aliased installation feature.
+#  overrides the BOOK_PREF variable to namespace the installation.
+#  This is the core of the aliased installation feature.
 # Arguments: None
 # Returns: 0
 # Globals: opt_alias, BOOK_PREF
@@ -3298,7 +3349,7 @@ bootstrap(){
 	is_alias_bin(){
 		identify;
 		#check if BOOK_PATH != bookdb
-		if [[ "$BOOK_PATH" == "./bookdb" ||  "$BOOK_PATH" =~ ^bookdb$  ]]; then
+		if [[ "$BOOK_PATH" == "./bookdb" || "$BOOK_PATH" =~ ^bookdb$ ]]; then
 			itrace "Running script is ($BOOK_PATH) mode";
 			return 1;
 		else
@@ -3312,7 +3363,7 @@ bootstrap(){
 	}
 
 #-------------------------------------------------------------------------------
-#  @main
+# @main
 #-------------------------------------------------------------------------------
 # Description: Primary entrypoint for the bookdb script.
 main(){
@@ -3353,7 +3404,7 @@ main(){
 
 
 	if [[ -n "$opt_quiet" ]]; then QUIET_MODE=true; fi
-	if is_dev; then  imp "Dev Mode Enabled."; fi
+	if is_dev; then imp "Dev Mode Enabled."; fi
 	trace "Args: ${ARGS[*]}";
 
 
@@ -3370,8 +3421,9 @@ main(){
 		(checksum) dev_checksum; exit $?; ;;
 		(dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
 		(\$)
-			magic "Dev mode sub call!";
+			mtrace "Dev mode sub call! ";
 			dev_sub_call "${ARGS[@]}";
+			LAST_CMD="DEV"; #label update
 		;;
 	esac
 
@@ -3403,7 +3455,7 @@ main(){
 
 
 #-------------------------------------------------------------------------------
-#  @usage
+# @usage
 #-------------------------------------------------------------------------------
 # Description: Displays detailed help text for the bookdb command.
 
@@ -3418,47 +3470,47 @@ usage(){
 		A shell-based, context-aware key-value store.
 
 		Context Syntax:
-			base@proj.VAR.keys       - Use context and persist it (base and proj/keys).
-			base%proj.VAR.keys       - Use context for one command only (read-only).
-			@proj.VAR.keys           - Use context in current base and persist it.
+			base@proj.VAR.keys  - Use context and persist it (base and proj/keys).
+			base%proj.VAR.keys  - Use context for one command only (read-only).
+			@proj.VAR.keys  - Use context in current base and persist it.
 
 		Core Commands:
-			status                   - Display a dashboard of the system's state.
-			cursor                   - Print the current active cursor chain.
+			status   - Display a dashboard of the system's state.
+			cursor   - Print the current active cursor chain.
 			ls [all|bases|proj|vars|keys] - List data. Default is 'keys'.
-			find <PATTERN>           - Find a key across all projects/keystores.
-			getv <KEY>               - Get the value of a variable.
-			setv <KEY=VALUE>         - Create or update a variable.
-			delv <KEY>               - Delete a variable.
-			incv <KEY> [amount]      - Increment a numerical value (default: 1).
-			decv <KEY> [amount]      - Decrement a numerical value (default: 1).
+			find <PATTERN>  - Find a key across all projects/keystores.
+			getv <KEY>  - Get the value of a variable.
+			setv <KEY=VALUE> - Create or update a variable.
+			delv <KEY>  - Delete a variable.
+			incv <KEY> [amount] - Increment a numerical value (default: 1).
+			decv <KEY> [amount] - Decrement a numerical value (default: 1).
 
 		Management Commands:
 			new <base|project|keyval> <name> - Create a new base, project, or keystore.
-			del <project|keyval> <name>    - Delete a project or keystore.
-			base                     - Show the current active base.
-			select <base_name>       - Set the persistent active base.
-			rebase <base_name>       - DANGER: Deletes and recreates a base.
-			unbase <base_name>       - DANGER: Deletes a base.
+			del <project|keyval> <name> - Delete a project or keystore.
+			base   - Show the current active base.
+			select <base_name>  - Set the persistent active base.
+			rebase <base_name>  - DANGER: Deletes and recreates a base.
+			unbase <base_name>  - DANGER: Deletes a base.
 
 		Admin & I/O Commands:
-			install                  - Install or update the bookdb application.
-			reset                    - DANGER: Deletes all bookdb data and artifacts.
-			backup [--all]           - Create a backup. --all includes all bases.
-			export keystore          - Export current keystore to a .env file.
-			import <file.env>        - Import keys from a .env file into a context.
-			migrate [--all]          - Export all keystores to a backup directory.
-			sanity                   - Perform a quick check of the installation state.
-			tables                   - (dev) List all tables in the database.
-			tdump <NAME>             - (dev) Dump the contents of a table.
-			dev_setup [skip]         - (dev) Create a standard set of test data.
+			install  - Install or update the bookdb application.
+			reset   - DANGER: Deletes all bookdb data and artifacts.
+			backup [--all]  - Create a backup. --all includes all bases.
+			export keystore  - Export current keystore to a .env file.
+			import <file.env> - Import keys from a .env file into a context.
+			migrate [--all]  - Export all keystores to a backup directory.
+			sanity   - Perform a quick check of the installation state.
+			tables   - (dev) List all tables in the database.
+			tdump <NAME>  - (dev) Dump the contents of a table.
+			dev_setup [skip] - (dev) Create a standard set of test data.
 
 		Flags:
-			-y, --yes                - Auto-confirm 'yes' to all prompts.
-			-p, --projdb <name>      - Set project namespace for this command.
-			-k, --keydb <name>       - Set key-value namespace for this command.
-			--all                    - Apply command to all bases (backup, migrate).
-			--printer stdoutt        - (TEST ONLY) Redirects human-readable messages to stdout.
+			-y, --yes   - Auto-confirm 'yes' to all prompts.
+			-p, --projdb <name> - Set project namespace for this command.
+			-k, --keydb <name>  - Set key-value namespace for this command.
+			--all   - Apply command to all bases (backup, migrate).
+			--printer stdoutt - (TEST ONLY) Redirects human-readable messages to stdout.
 
 	EOF
 	exit 1;
