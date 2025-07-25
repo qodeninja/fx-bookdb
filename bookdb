@@ -31,7 +31,7 @@
   readonly BOOK_PATH="$0";
 
   BOOK_PREF='bookdb'; #controls the name for app and directory installs
-  BOOK_DEFAULT_BASE="home";
+  BOOK_DEFAULT_BASE="home"; #controls default db name
 
 
 #-------------------------------------------------------------------------------
@@ -97,7 +97,7 @@
     BOOK_CACHE="${HOME}/.cache/${XDG_PREF}";
 
     # db setup
-    BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
+    BOOK_DB="${BOOK_DATA}/${BOOK_DEFAULT_BASE}.sqlite"; # used with select_db via THIS_DB
     BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
 
     # rcfile and cursors
@@ -229,7 +229,7 @@ line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 
 # force a function to identify itself
 identify(){ 
-  local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
+  #local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
   is_dev && stderr "${grey}⟡┄┄┄[${white2}${FUNCNAME[1]}${grey}]${grey3}<-$f2"; 
 }
 
@@ -266,7 +266,7 @@ trace(){
   if [ "$same" -eq 0 ]; then
     str="\t${grey}└┄┄>> ${grey}";
   else
-    str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}][$level] \n\t┆\n\t└┄┄>"; #\t└⚀\n
+    str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}] \n\t┆\n\t└┄┄>"; #\t└⚀\n
   fi
 
   stderr "  $str ${*}";
@@ -1341,7 +1341,7 @@ __link_to_profile(){
 # Description: Removes the bookdb source line from the user's shell profile.
 __unlink_from_profile(){
   local profile_file="$1";
-  local sentinel_comment="# bookdb configuration";
+  local sentinel_comment="# bookdb configuration for $BOOK_PREF";
   local ret=0;
 
   if [[ ! -f "${profile_file}" ]]; then
@@ -2427,7 +2427,7 @@ dev_sanity(){
 
   #todo: show context here too.
 
-  if command -v bookdb >/dev/null 2>&1; then trace "'bookdb' command found in PATH."; else error "'bookdb' not in PATH"; ret=1; fi
+  if command -v bookdb >/dev/null 2>&1; then trace "'${BOOK_PREF}' command found in PATH."; else error "'${BOOK_PREF}' not in PATH"; ret=1; fi
 
   devbar;
   dev_checksum;
@@ -2926,7 +2926,6 @@ bootstrap(){
 
     fi
 
-    # opt_alias is never used for anything
     if [[ -n "$opt_alias" ]]; then
 
       if [[ "$opt_alias" =~ ^bookdb$ ]]; then
@@ -2934,8 +2933,8 @@ bootstrap(){
       else
         BOOK_PREF="$opt_alias";
         ptrace "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
-        ALIAS_NAME='';
-        ALIAS_DB='';
+        ALIAS_NAME=$BOOK_PREF;
+        ALIAS_MODE=0;
       fi
     else
       wtrace "Alias was not applied."
