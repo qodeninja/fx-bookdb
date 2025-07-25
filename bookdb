@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # 
 # bookdb 
 # version 0.7.0
@@ -30,6 +31,7 @@
   readonly BOOK_PATH="$0";
 
   BOOK_PREF='bookdb'; #controls the name for app and directory installs
+  BOOK_DEFAULT_BASE="home";
 
 
 #-------------------------------------------------------------------------------
@@ -60,10 +62,17 @@
 #-------------------------------------------------------------------------------
 
   # XDG+ Compliance
-  _XDG_HOME="${HOME}/.local";
-  _XDG_PREF="fx/${BOOK_PREF}";
+  XDG_HOME="${HOME}/.local";
+  XDG_PREF="fx/${BOOK_PREF}";
 
-  # These are now defined in __init_xdg_paths
+  declare -A CONFIG__=(
+    [happy]=1
+    [sad]=0
+    [greeting]="Hello World"
+    [key_with_spaces]="This is a value"
+  );
+
+  # These are now defined in xdg_init
   BOOK_LIB=;
   BOOK_BIN=;
   BOOK_ETC=;
@@ -77,13 +86,14 @@
   BOOK_CONTEXT_CURSOR=;
   BOOK_LOCK=;
 
-    _XDG_PREF="fx/${BOOK_PREF}";
-    BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
-    BOOK_BIN="${_XDG_HOME}/bin/fx";
-    BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
-    BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; # XDG data do not change
-    BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
-    BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
+  xdg_init(){
+    XDG_PREF="fx/${BOOK_PREF}";
+    BOOK_LIB="${XDG_HOME}/lib/fx/app"; # install directory
+    BOOK_BIN="${XDG_HOME}/bin/fx";
+    BOOK_ETC="${XDG_HOME}/etc/${XDG_PREF}";
+    BOOK_DATA="${XDG_HOME}/data/${XDG_PREF}"; # XDG data do not change
+    BOOK_STATE="${XDG_HOME}/state/${XDG_PREF}";
+    BOOK_CACHE="${HOME}/.cache/${XDG_PREF}";
 
     # db setup
     BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
@@ -96,28 +106,7 @@
 
     # query lock
     BOOK_LOCK="${BOOK_STATE}/db.lock";
-
-  # __init_xdg_paths(){
-  #   _XDG_PREF="fx/${BOOK_PREF}";
-  #   BOOK_LIB="${_XDG_HOME}/lib/fx/app"; # install directory
-  #   BOOK_BIN="${_XDG_HOME}/bin/fx";
-  #   BOOK_ETC="${_XDG_HOME}/etc/${_XDG_PREF}";
-  #   BOOK_DATA="${_XDG_HOME}/data/${_XDG_PREF}"; # XDG data do not change
-  #   BOOK_STATE="${_XDG_HOME}/state/${_XDG_PREF}";
-  #   BOOK_CACHE="${HOME}/.cache/${_XDG_PREF}";
-
-  #   # db setup
-  #   BOOK_DB="${BOOK_DATA}/main.sqlite"; # used with select_db via THIS_DB
-  #   BOOK_TEST_DB="${BOOK_DATA}/test.sqlite"; 
-
-  #   # rcfile and cursors
-  #   BOOK_RC="${BOOK_ETC}/bookrc";
-  #   BOOK_BASE_CURSOR="${BOOK_STATE}/base_cursor";
-  #   BOOK_CONTEXT_CURSOR="${BOOK_STATE}/context_cursor"; 
-
-  #   # query lock
-  #   BOOK_LOCK="${BOOK_STATE}/db.lock";
-  # }
+  }
 
 #-------------------------------------------------------------------------------
 #  Context Variables (Initialized by Bootstrap/Context)
@@ -150,7 +139,7 @@ COUNTER=;
 
   # STDERR escapes
   readonly  red2=$'\x1B[38;5;197m';
-  readonly  red=$'\x1B[38;5;9m';
+  readonly  red=$'\x1B[38;5;1m';
   readonly  deep=$'\x1B[38;5;61m';
   readonly  deep_green=$'\x1B[38;5;60m';
   readonly  orange=$'\x1B[38;5;214m';
@@ -193,7 +182,7 @@ stderr(){
 
   # If in TEST_MODE and --printer stdoutt is active, and it's NOT an error/fatal message,
   # redirect output to stdoutt.
-  if [[ "$TEST_MODE" -eq 0 && -n "$opt_printer_test" && -z "$is_error_level" ]]; then
+  if [[ "$TEST_MODE" -eq 0 && -n "$opt_printer_test" ]]; then
     stdoutt "${msg}"; # Use stdoutt function for redirection
     return 0;
   fi
@@ -206,15 +195,25 @@ stderr(){
   return 0;
 }
 
+# stdoutt : Switch for stderr to use stdout instead (for test capture).
+# --printer stdoutt
+stdoutt(){
+  local msg="$1";
+  printf "%b" "${msg}";
+  return 0;
+}
+
+
 #-------------------------------------------------------------------------------
 #  Standard Printers with Tracing
 #-------------------------------------------------------------------------------
 
 fatal(){  stderr "${red}${*}" "force" "error"; exit 1; } #auto exit
-error(){ stderr "\t${red}└┄┄ ${*}" "force" "error"; }
-warn(){  stderr  "\t${orange}└┄┄ ${*}"; }
-okay(){  stderr  "\t${green}└┄┄ ${*}"; }
-info(){  stderr  "\t${blue}└┄┄ ${*}"; }
+error(){ stderr "${red}${*}" "force" "error"; }
+warn(){  stderr  "${orange}${*}"; }
+okay(){  stderr  "${green}${*}"; }
+info(){  stderr  "${blue}${*}"; }
+
 
 # we generally dont use log but its here for completeness
 log(){ stderr "${white2}${*}"; }
@@ -257,27 +256,47 @@ trace(){
   [ -n "$LAST_CMD" ] && last="\n${grey3}[${cyan}↯ $last${grey3}]" || last="";
 
   # [ -z "$f3" ] && f3="✻";
-  [ -z "$f2" ]  || f1="${deep}$f1" && f2="${grey3}<-$f2";
+  [ -z "$f2" ]  || f1="${orange}$f1" && f2="${grey3}<-$f2";
 
   if [ "$same" -eq 0 ]; then
-    str="\t${grey}└┄┄>>";
+    str="\t${grey}└┄┄>>${green2}[${#FUNCNAME[@]}]${grey}";
   else
-    str="${last}${grey}\n⟡┄┄┄[$f1${grey}] $f2${grey} \n\t┆\n\t└┄┄>"; #\t└⚀\n
+    str="${last}${grey}\n${orange}λ${grey}┄┄┄[$f1${grey}] $f2${grey} \n\t┆\n\t└┄┄>"; #\t└⚀\n
   fi
 
   stderr "  $str ${*}";
   LAST_FUNC="$lf1"; # track when function call ref switches
-
+  
 
 }
 
-# stdoutt : Switch for stderr to use stdout instead (for test capture).
-# --printer stdoutt
-stdoutt(){
-  local msg="$1";
-  printf "%b" "${msg}${xx}\n";
-  return 0;
+#-------------------------------------------------------------------------------
+#  Pretty Tracers
+#-------------------------------------------------------------------------------
+
+_make_lbl(){
+  local col=$1 lbl=$2;
+  printf "\t${grey}└┄┄[ ${!col}$lbl${grey} ] ${white}";
 }
+
+ftrace(){ local __=$(_make_lbl "red" "fatal");  stderr "$__ ${*}" "force" "error"; }
+etrace(){ local __=$(_make_lbl "red" "error");  stderr "$__ ${*}" "force" "error"; }
+wtrace(){ local __=$(_make_lbl "orange" "warn");  stderr "$__ ${*}"; }      
+ptrace(){ local __=$(_make_lbl "green" "okay");  stderr "$__ ${*}"; }
+itrace(){ local __=$(_make_lbl "blue" "info");  stderr "$__ ${*}"; }
+mtrace(){ local __=$(_make_lbl "purple" "magic");  stderr "$__ ${*}"; }
+      
+trace_add(){ local __=$(_make_lbl "green" "+");  stderr "$__ ${*}"; }
+trace_sub(){ local __=$(_make_lbl "red" "-");  stderr "$__ ${*}"; }
+trace_found(){ local __=$(_make_lbl "blue" "✻");  stderr "$__ ${*}"; }
+trace_done(){ local __=$(_make_lbl "green" "✔");  stderr "$__ ${*}"; }
+trace_item(){ local  __=$(_make_lbl "purple" "⟐");  stderr "$__ ${*}"; }
+
+
+
+#-------------------------------------------------------------------------------
+#  Shapes
+#-------------------------------------------------------------------------------
 
 
 bar(){
@@ -289,7 +308,45 @@ bar(){
   return 0;
 }
 
+dump_vars(){
+  identify;
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: dump_prefixed_variables <PREFIX1> [PREFIX2...]" >&2
+    echo "  Example: dump_prefixed_variables BOOK_ XDG_" >&2
+    return 1
+  fi
 
+  for prefix in "$@"; do
+    trace "Variables with prefix: '$prefix'";
+    local found_any=false;
+
+    while IFS= read -r var_name; do
+      if [[ "$var_name" == "${prefix}"* ]]; then
+        if declare -p "$var_name" &>/dev/null; then
+          printf -v line "%s='%s'" "$var_name" "${!var_name}";
+          trace_item "$line";
+          found_any=true;
+        fi
+      fi
+    done < <(compgen -v)
+
+    if ! "$found_any"; then
+      echo "  No variables found with prefix '$prefix'."
+    fi
+    echo
+  done
+}
+
+dump_assoc_array_kv() {
+  identify;
+  local -n arr_ref="$1" # Reference the associative array by name
+  local line            # Variable to store each formatted line
+
+  for key in "${!arr_ref[@]}"; do
+    printf -v line "%s=%s" "$key" "${arr_ref[$key]}"
+    warn "$line"
+  done
+}
 
 #-------------------------------------------------------------------------------
 #  STDFX Guards and Helpers
@@ -677,28 +734,30 @@ select_db(){
   identify;
 
   trace "book data path is $BOOK_DATA";
-  # Priority 1: TEST_MODE always overrides everything.
-  if [[ -n "$TEST_MODE" && "$TEST_MODE" -eq 0 ]]; then
-    THIS_DB="$BOOK_TEST_DB";
-    THIS_BASE_NAME="test";
-    return 0;
-  fi
-
-  # Priority 2: Read the active base name from the cursor file.
   local base_name;
-  if [[ -f "${BOOK_BASE_CURSOR}" ]]; then
-    base_name=$(cat "${BOOK_BASE_CURSOR}");
+
+  # Priority 1: Command-line override (opt_base_override) always takes precedence
+  if [[ -n "$opt_base_override" ]]; then
+      base_name="${opt_base_override}";
+  # Priority 2: Read from cursor file
+  elif [[ -f "${BOOK_BASE_CURSOR}" ]]; then
+      base_name=$(cat "${BOOK_BASE_CURSOR}");
+  # Priority 3: TEST_MODE sets default base if no override
+  elif [[ -n "$TEST_MODE" && "$TEST_MODE" -eq 0 ]]; then
+      base_name="${BOOK_TEST_BASE:-test}";
+  # Priority 4: Default to BOOK_DEFAULT_BASE
+  else
+      base_name="${BOOK_DEFAULT_BASE}";
   fi
 
-  # Priority 3: If cursor is empty, file doesn't exist, or the DB file is missing,
-  # default to "main".
+  # Validate base_name and set global variables
   if __is_empty "${base_name}" || [[ ! -f "$(__get_base_path "${base_name}")" ]]; then
-    base_name="main";
+      base_name="${BOOK_DEFAULT_BASE}"; # Fallback if resolved base is invalid/missing
   fi
 
-  # Set the global variables based on the resolved name.
   THIS_BASE_NAME="${base_name}";
   THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
+  devlog "select_db: THIS_BASE_NAME set to ${THIS_BASE_NAME}";
   return 0;
 }
 
@@ -762,15 +821,15 @@ __ensure_default_keystore_exists(){
 #              exists. If it doesn't, it creates it.
 __ensure_default_base_exists(){
     identify;
-    local main_base_path;
-    main_base_path=$(__get_base_path "main");
-    info "Base path main $main_base_path";
+    local default_base_path;
+    default_base_path=$(__get_base_path "${THIS_BASE_NAME}");
+    info "Base path ${THIS_BASE_NAME} $default_base_path";
     todo "MAIN SHOULD NOT BE HARDCODED!"
 
-    if [[ ! -f "${main_base_path}" ]]; then
-        info "Default 'main' database not found. Creating it now...";
+    if [[ ! -f "${default_base_path}" ]]; then
+        info "Default '${THIS_BASE_NAME}' database not found. Creating it now...";
         # Use our existing low-level helper to create and initialize it.
-        _create_base "main" || fatal "FATAL: Could not create the default 'main' database.";
+        _create_base "${THIS_BASE_NAME}" || fatal "FATAL: Could not create the default '${THIS_BASE_NAME}' database.";
     fi
     return 0;
 }
@@ -1141,23 +1200,11 @@ __confirm_action(){
 # todo: can this use sub functions at all?
 __resolve_context(){
   trace "Attempting to resolve context...";
-  local T_base_name="${THIS_BASE_NAME}";
   local T_pns_name=; local T_kvns_name=;
   local persist_base=0; local persist_context=0;
   local context_from_cmd=0;
 
   # --- Part 1: Prioritize command-line overrides ---
-  if [[ -n "$opt_base_override" ]]; then
-      context_from_cmd=1;
-      if ! _list_bases | grep -q "^${opt_base_override}$"; then error "Base '${opt_base_override}' not found."; return 1; fi
-      T_base_name="${opt_base_override}";
-      if [[ "${opt_chain_mode}" == "@" ]]; then persist_base=1; fi
-  fi
-
-  # Commit the base for this run so DB queries below are correct
-  THIS_BASE_NAME="${T_base_name}";
-  THIS_DB=$(__get_base_path "${THIS_BASE_NAME}");
-
   if [[ -n "$opt_projdb" ]]; then
       context_from_cmd=1; persist_context=1;
       T_pns_name="${opt_projdb}"; T_kvns_name="MAIN";
@@ -1356,6 +1403,7 @@ __unlink_from_profile(){
 # Description: Lists various database entities.
 do_ls(){
   identify;
+  devlog "do_ls: THIS_BASE_NAME is ${THIS_BASE_NAME}";
 
   local ret=1;
   local what="${1:-keys}"; # Default to listing keys
@@ -1372,28 +1420,12 @@ do_ls(){
           info "No bases found.";
       else
           info "Available Bases!:";
-
-          #while loop
-          printf "%s\n" "${all_bases}"  | while IFS= read -r base_name; do
+          for base_name in "${all_bases[@]}"; do
               local prefix="  ";
               if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
                   prefix="* ";
               fi
-
-              if ((${#all_bases[@]} == 0)); then
-                info "No bases found."
-              else
-                info "Available Bases!:"
-                for base_name in "${all_bases[@]}"; do
-                  local prefix="  "
-                  if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
-                    prefix="* "
-                  fi
-                  info "${prefix}${base_name}"
-                done
-              fi
-              ret=0
-              info "${prefix} ${base_name}";
+              info "${prefix}${base_name}";
           done;
       fi
       #info "!list is : ${all_bases[@]}";
@@ -1536,9 +1568,8 @@ do_select_base(){
 ################################################################################
 # Description: Prints the active base name.
 do_current_base(){
-  # THE FIX: Print the raw base name directly to stdout.
-  # This aligns with commands like `getv` and is easily capturable.
-  # We will add the "Active Base: " decoration in the test script itself if needed.
+  identify;
+  devlog "do_current_base: THIS_BASE_NAME is ${THIS_BASE_NAME}";
   printf "%s\n" "${THIS_BASE_NAME}";
   return 0;
 }
@@ -1579,8 +1610,8 @@ do_unbase(){
   # THE FIX: Instead of a simple string check for "main", we can use our new
   # invincible defaults principle. While this function doesn't directly
   # call __require_invincible_defaults, the logic here enforces the same rule.
-  if [[ "${base_name}" == "main" ]]; then
-      error "Cannot delete the default 'main' base. Use 'rebase main' to reset it.";
+  if [[ "${base_name}" == "${BOOK_DEFAULT_BASE}" ]]; then
+      error "Cannot delete the default '${BOOK_DEFAULT_BASE}' base. Use 'rebase ${BOOK_DEFAULT_BASE}' to reset it.";
       return 1;
   fi;
 
@@ -1772,7 +1803,7 @@ do_status(){
   
   local projects=$(__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;");
   if [[ -n "${projects}" ]]; then
-    echo "${projects}" | while IFS= read -r line; do info "    - %s" "${line}"; done
+    echo "${projects}" | while IFS= read -r line; do info "    - ${line}"; done
   else
     info "    (No projects found)";
   fi
@@ -1966,7 +1997,7 @@ do_reset(){
       __reset_cursors;
       __reset_config_and_state;
       # A soft reset should also reset the main database to a pristine state
-      do_rebase "main";
+      do_rebase "${BOOK_DEFAULT_BASE}";
     else
       warn "Performing FULL HARD RESET for '${BOOK_PREF}'...";
       local profile_file;
@@ -2533,8 +2564,8 @@ do_install(){
 
   # Create initial base and set it as active if this is a fresh install
   if [[ ! -e "${BOOK_BASE_CURSOR}" ]]; then
-      _create_base "main" || fatal "Failed to create initial 'main' database.";
-      printf "%s" "main" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write initial base cursor.";
+      _create_base "${THIS_BASE_NAME}" || fatal "Failed to create initial '${THIS_BASE_NAME}' database.";
+      printf "%s" "${THIS_BASE_NAME}" > "${BOOK_BASE_CURSOR}" || fatal "Failed to write initial base cursor.";
   fi
 
   local _ln_path="${BOOK_BIN}/${BOOK_PREF}";
@@ -2873,24 +2904,25 @@ dispatch(){
     identify;
     if [[ -n "$opt_alias" ]]; then
 
-      if [[ "$opt_alias" == ^"bookdb"$ ]]; then
+      if [[ "$opt_alias" =~ ^bookdb$ ]]; then
         fatal "[ALIAS] You cannot use the default 'bookdb' name as an alias!";
       else
         BOOK_PREF="$opt_alias";
-        info "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
+        itrace "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
         ALIAS_NAME='';
         ALIAS_DB='';
       fi
     else
-      warn "Alias was not applied."
+      wtrace "Alias was not applied."
     fi
     return 0;
   }
 
   is_alias(){
-
+    #identify;
     #check if BOOK_PATH != bookdb
-    if [[ "$BOOK_PATH" == "./bookdb" ||  "$BOOK_PATH" == "bookdb"  ]]; then
+    if [[ "$BOOK_PATH" == "./bookdb" ||  "$BOOK_PATH" =~ ^bookdb$  ]]; then
+      itrace "Running script is ($BOOK_PATH) mode";
       return 1;
     else
       imp "Is in ALIASED mode! ($BOOK_PATH)";
@@ -2907,6 +2939,7 @@ dispatch(){
 ################################################################################
 # Description: Primary entrypoint for the bookdb script.
 main(){
+  #set -x
   local ret;
 
 
@@ -2916,9 +2949,20 @@ main(){
   options "$@";
 
   apply_alias;
-  is_alias;
-  #__init_xdg_paths; # Call the new alias function here
 
+  if is_alias; then 
+    noop;
+  fi
+
+
+
+
+  # Call xdg_init AFTER apply_alias to ensure XDG paths reflect the resolved BOOK_PREF (including alias handling).
+  xdg_init;
+  dump_vars BOOK_;
+  dump_vars XDG_;
+
+  exit 1;  
   bootstrap;
 
   select_db;
@@ -2971,6 +3015,7 @@ main(){
 #
 ################################################################################
 # Description: Displays detailed help text for the bookdb command.
+
 usage(){
 identify;
   cat << EOF >&2
