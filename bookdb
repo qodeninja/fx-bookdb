@@ -261,12 +261,12 @@ trace(){
   [ -n "$LAST_CMD" ] && last="\n${grey3}[${cyan}↯ $last${grey3}]" || last="";
 
   # [ -z "$f3" ] && f3="✻";
-  [ -z "$f2" ]  || f1="${orange}$f1" && f2="${grey3}<-$f2";
+  [ -z "$f2" ]  || f1="${deep}$f1" && f2="${grey3}<-$f2";
 
   if [ "$same" -eq 0 ]; then
     str="\t${grey}└┄┄>> ${grey}";
   else
-    str="${last}${grey}\n${orange}λ${grey}┄┄┄[$f1${grey}][$level] \n\t┆\n\t└┄┄>"; #\t└⚀\n
+    str="${last}${grey}\n${deep}λ${grey}┄┄┄[$f1${grey}][$level] \n\t┆\n\t└┄┄>"; #\t└⚀\n
   fi
 
   stderr "  $str ${*}";
@@ -2918,13 +2918,22 @@ bootstrap(){
 # Globals: opt_alias, BOOK_PREF
   apply_alias(){
     identify;
+
+    if is_alias_bin; then
+      # alias handoff we dont need --alias flag anymore
+      wtrace "Inferred alias detected: $BOOK_PATH!";
+      opt_alias=$(basename $BOOK_PATH);
+
+    fi
+
+    # opt_alias is never used for anything
     if [[ -n "$opt_alias" ]]; then
 
       if [[ "$opt_alias" =~ ^bookdb$ ]]; then
         fatal "[ALIAS] You cannot use the default 'bookdb' name as an alias!";
       else
         BOOK_PREF="$opt_alias";
-        itrace "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
+        ptrace "[ALIAS] Running with alias. PREF (got:${BOOK_PREF}) opt_alias (got:$opt_alias)"
         ALIAS_NAME='';
         ALIAS_DB='';
       fi
@@ -2934,14 +2943,14 @@ bootstrap(){
     return 0;
   }
 
-  is_alias(){
-    #identify;
+  is_alias_bin(){
+    identify;
     #check if BOOK_PATH != bookdb
     if [[ "$BOOK_PATH" == "./bookdb" ||  "$BOOK_PATH" =~ ^bookdb$  ]]; then
       itrace "Running script is ($BOOK_PATH) mode";
       return 1;
     else
-      imp "Is in ALIASED mode! ($BOOK_PATH)";
+      #imp "Is in ALIASED mode! ($BOOK_PATH)";
       return 0;
     fi
   }
@@ -2966,7 +2975,7 @@ main(){
 
   apply_alias;
 
-  if is_alias; then 
+  if is_alias_bin; then 
     noop;
   fi
 
@@ -2980,10 +2989,10 @@ main(){
 
  
   bootstrap;
-
+  todo "FIX multiple get_base_path calls";
   select_db;
   dump_vars BOOK_;
-  exit 1; 
+  # exit 1; 
 
 
   devlog "Pref is "$BOOK_PREF" post alias call ($BOOK_PATH)";
