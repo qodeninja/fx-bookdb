@@ -1491,7 +1491,7 @@ super_substring_filter() {
 	dev_create_base(){
 		identify;
 		local base_name="$1" rand;
-		if [ -z "$base_bame" ]; then 
+		if [ -z "$base_name" ]; then 
 			base_bame=$(random_pick_array BASE_LIST);
 		fi
 		_create_base "$base_name";
