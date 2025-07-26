@@ -341,7 +341,7 @@ bar(){
 	local line_str;
 	printf -v line_str '%*s' "$len" '';
 	line_str=${line_str// /${char}};
-	stderr "$line_str"; # Use our stderr wrapper to print the final line
+	echo "$line_str"; # Use our stderr wrapper to print the final line
 	return 0;
 }
 
@@ -1210,73 +1210,140 @@ dev_show_sqlite(){
 	__get_sqlite_stream "${BOOK_DATA}";
 }
 
-__ask(){
-	local msg="$1" default="$2"
-		if [ "${opt_yes:-1}" -eq 1 ]; then # Only prompt if opt_yes is NOT 0 (i.e., not auto-yes)
-		read -p "${blue}$msg -->${xx}${green} " answer
-		[ -n "$answer" ] && echo "$answer" || echo "$default"
-	else # If opt_yes is 0 (auto-yes), just return the default
-		echo "$default"
+__ask() {
+	local msg="$1" default="$2" answer prompt
+	if [[ "${opt_yes:-0}" -eq 1 ]]; then
+			[[ -z "$default" ]] && fatal "Missing default for auto-accept! ($msg)"
+			echo "$default"
+			return 0
+	fi
+	builtin printf -v prompt "${blue}%b${xx}${blue}[enter or 'q'] --> ${orange} " "$msg"
+	read -p "$prompt" answer
+	case "$answer" in
+		c|q|n|quit|cancel) error "Operation cancelled."; return 1 ;;
+	esac
+	echo "${answer:-$default}"
+}
+
+is_required_base(){
+	identify; 
+	local this="$1";
+	if is_defined "$BOOK_DEFAULT_BASE" && [ "$BOOK_DEFAULT_BASE" == "$this" ]; then
+		fatal "System default base cannot be deleted. ($BOOK_DEFAULT_BASE)";
+	else
+		return 0;
 	fi
 }
 
 dev_rem_base(){
 	identify;
-	local base_name="$1" answer bases default;
+	local base_name="$1" answer bases default ret;
 	local -a delete_list=();
 	local -a ignore_list=();
 	mapfile -t bases < <(_list_filterd_bases); 
 	# declare -p bases >&2; debug output
-	stream_array bases |  pr -4 -t -s'|' | column -t -s'|' >&2;
+
 
 	#stream_array BASE_LIST >&2;
 
-	if (( ${#bases[@]} > 0 )); then
-			# This line now only runs if it's safe to do so.
-			default="${bases[0]}"
-	else
-	 warn "bases was empty!";
-	fi
-
-	info "Base size is ${#bases[@]}";
-
 	if ! is_var_ref base_name; then
-		if answer=$(__ask "Which base shall we nuke? (%fuzzy #exact !fuzzy !#exact)" "$default"); then
-
-			read -ra patterns_array <<< "$answer"
-			itrace "Processing ... Thank You! We (got=${patterns_array[*]})" >&2;
-
-			# ex: mapfile -t delete_list < <(stream_array bases | super_substring_filter "${patterns_array[@]}") #streamlined
-			while IFS= read -r line; do
-				if [[ -n "$line" ]]; then
-						# trace_item "delete candidate: ${line}";
-						# It's also safer to quote the variable here
-						delete_list+=("$line");
-				fi
-			done < <(stream_array bases | super_substring_filter "${patterns_array[@]}");
 
 
-			# declare -p delete_list >&2; #debug
-			# show the items to be deleted
-			stream_array delete_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
+		line "Deletion Pending...";
 
-			array_diff bases delete_list ignore_list;
-
-			line "Bases for Deletion";
-			if __confirm_action "The above listed bases will be deleted. Continue?" "critical"; then
-				#delete items
-				ptrace "These items will be skipped from deletion";
-				stream_array ignore_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2;
-				noop;
+		# set default target
+		if (( ${#bases[@]} > 0 )); then
+			default="${bases[0]}";
+			if ! is_required_base "$default"; then
+				warn "Default base to delete is:$default";
 			fi
-
-
+		else
+			warn "bases was empty!";
 		fi
+
+
+		local this_bar=$(bar 25 "-" | color_filter "orange" );
+		echo -e "\n$this_bar" >&2;
+		warn "Available Bases [${#bases[@]}]:\n> $BOOK_DEFAULT_BASE (system)";
+		stream_array bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter | color_filter "orange" >&2;
+		echo -e "$this_bar\n" >&2;
+
+		local prompt_message;
+		this_bar=$(bar 60 "-" | color_filter "grey3" );
+		prompt_message=$(cat <<-EOF
+		$this_bar
+		${blue}Which [base] shall we nuke?${xx}
+
+			A destructive change is pending. Use 'backup' to save data first.
+
+			${purple}FILTER SYNTAX:${xx}
+				Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
+				Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
+
+			${purple}ACTIONS:${xx}
+				- Type 'q' or 'cancel' to exit.
+				- Hit <Enter> to accept the default: ${cyan}[$default]${xx}
+				- or Enter filter(s) separated by spaces...\n\n\t
+		EOF
+		);
+
+
+		if answer=$(__ask "$prompt_message" "$default"); then
+				# ... your logic continues here ...
+				echo "Processing answer: $answer"
+
+				read -ra patterns_array <<< "$answer"
+				itrace "Reviewing changes... (got=${patterns_array[*]})" >&2;
+
+				# ex: mapfile -t delete_list < <(stream_array bases | super_substring_filter "${patterns_array[@]}") #streamlined
+				while IFS= read -r line; do
+					if [[ -n "$line" ]]; then
+							# trace_item "delete candidate: ${line}";
+							# It's also safer to quote the variable here
+							delete_list+=("$line");
+					fi
+				done < <(stream_array bases | super_substring_filter "${patterns_array[@]}"); ret=$?;
+				array_diff bases delete_list ignore_list;
+
+				if [ "${#delete_list[@]}" -gt 0 ]; then 
+						# declare -p delete_list >&2; #debug
+						# show the items to be deleted
+						stream_array delete_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
+						# find ignores;
+
+
+						line "Bases for Deletion";
+						if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${red}unrecoverable${xx}\nContinue?" "critical"; then
+							#delete items
+							ptrace "These items will be remain after deletion";
+							stream_array ignore_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2;
+							wtrace "One Moment...";
+							sleep 3;
+							printf "%s\n" "${delete_list[@]}" | _remove_bases;
+						else
+							#
+							noop; #cancel critical is fatal
+						fi
+				else
+					error "Selection resulted in zero work! Skipping.";
+					return 1;
+				fi
+
+
+		fi #endif
+
+
 	else
 		debug "rem (got=$basename)";
 	fi
 }
 
+list_filter(){
+	local bullet="${1:->}";
+	while IFS= read -r line; do
+		printf "${bullet} %b\n" "$line";
+	done
+}
 
 color_filter(){
 	local color="${1:-grey}";
@@ -1309,81 +1376,54 @@ color_filter(){
 # 2. Only if it survives, it is checked against a combined pool of ALL inclusion patterns.
 #    It must match ANY inclusion (# or %) to be finally ACCEPTED.
 #
-super_substring_filter() {
-    if [[ $# -eq 0 ]]; then cat; return; fi
 
-    # --- 1. Argument Parsing (Unchanged) ---
-    local -a includes=()
-    local -a excludes=()
-    local -a exact_include=()
-    local -a exact_exclude=()
+super_substring_filter() {
+    if [[ $# -eq 0 ]]; then cat; return 0; fi
+
+    local -a includes=() excludes=() exact_include=() exact_exclude=()
+    local found_match=false; # <--- 1. DECLARE FLAG
 
     for arg in "$@"; do
         case "$arg" in
-            '!#'*) exact_exclude+=("${arg#!#}") ;;
-            '!'*)  excludes+=("${arg#!}")      ;;
-            '#'*)  exact_include+=("${arg#\#}") ;;
-            '%'*)  includes+=("${arg#\%}")      ;;
-            *)     warn "Invalid argument '$arg': Missing prefix. Skipping." ;;
+					('!#'*) exact_exclude+=("${arg#!#}"); ;;
+					('!'*)  excludes+=("${arg#!}");       ;;
+					('#'*)  exact_include+=("${arg#\#}"); ;;
+					('%'*)  includes+=("${arg#\%}");      ;;
+					(*) includes+=("${arg#\%}");  ;;
         esac
     done
 
-    # --- 2. Main Filtering Loop ---
     while IFS= read -r line; do
-        # --- PHASE 1: THE COMBINED EXCLUSION GAUNTLET (REVISED FOR SYMMETRY) ---
         local is_excluded=false
-        # Check for an exact exclusion first.
-        for pattern in "${exact_exclude[@]}"; do
-            if [[ "$line" == "$pattern" ]]; then
-                is_excluded=true
-                break
-            fi
-        done
-        # If not yet excluded, check for a fuzzy exclusion.
+        for p in "${exact_exclude[@]}"; do [[ "$line" == "$p" ]] && { is_excluded=true; break; }; done
         if ! "$is_excluded"; then
-            for pattern in "${excludes[@]}"; do
-                if [[ "$line" == *"$pattern"* ]]; then
-                    is_excluded=true
-                    break
-                fi
-            done
+            for p in "${excludes[@]}"; do [[ "$line" == *"$p"* ]] && { is_excluded=true; break; }; done
         fi
+        if "$is_excluded"; then continue; fi
 
-        # Single decision point for all exclusions.
-        if "$is_excluded"; then
-            continue # REJECTED
-        fi
-
-        # --- PHASE 2: THE COMBINED INCLUSION CHECKPOINT (From previous version) ---
         local is_included=false
-        # If no include patterns were given, everything that wasn't excluded is a match.
         if (( ${#exact_include[@]} == 0 && ${#includes[@]} == 0 )); then
             is_included=true
         else
-            # Check for an exact match first.
-            for pattern in "${exact_include[@]}"; do
-                if [[ "$line" == "$pattern" ]]; then
-                    is_included=true
-                    break
-                fi
-            done
-            # If not yet included, check for a fuzzy match.
+            for p in "${exact_include[@]}"; do [[ "$line" == "$p" ]] && { is_included=true; break; }; done
             if ! "$is_included"; then
-                for pattern in "${includes[@]}"; do
-                    if [[ "$line" == *"$pattern"* ]]; then
-                        is_included=true
-                        break
-                    fi
-                done
+                for p in "${includes[@]}"; do [[ "$line" == *"$p"* ]] && { is_included=true; break; }; done
             fi
         fi
 
-        # FINAL VERDICT
         if "$is_included"; then
+            found_match=true # <--- 2. SET FLAG ON SUCCESS
             echo "$line"
         fi
     done
+
+    # --- 3. FINAL CHECK ---
+    if ! "$found_match"; then
+			# error "Filter produced no matches." >&2
+			return 1
+    fi
 }
+
 #-------------------------------------------------------------------------------
 # @fruit - start a new basefile
 #-------------------------------------------------------------------------------
@@ -1491,6 +1531,78 @@ _remove_base(){
 	okay "Database '${base_name}' removed.";
 	return 0;
 }
+
+
+# (low-level worker) Removes a SINGLE base and its associated files.
+# This function is not meant to be called directly by the user.
+__remove_one_base(){
+    local base_name="$1"
+    
+    # A guard against empty input
+    if [[ -z "$base_name" ]]; then return 1; fi
+
+    local base_path
+    base_path=$(_get_base_path "$base_name")
+
+    # System-level guard: check if file exists
+    if [[ ! -f "${base_path}" ]]; then
+        error "Database '${base_name}' does not exist. Skipping."
+        return 1
+    fi
+
+    # Attempt to remove all associated files. The || makes it fail-safe.
+    # The 'true' at the end ensures the command doesn't exit the script on failure if set -e is on.
+    rm -f "${base_path}" "${base_path}-wal" "${base_path}-shm" || { error "Failed to remove database files for: ${base_name}"; return 1; }
+    
+    okay "Database '${base_name}' removed."
+    return 0
+}
+
+# (high-level) Removes multiple bases provided either as arguments or via a stream.
+# Usage 1 (arguments):  _remove_bases "base1" "base2"
+# Usage 2 (stream):     cat my_list.txt | _remove_bases
+_remove_bases() {
+    local -a items_to_process=()
+
+    # --- 1. GATHER INPUT ---
+    # Smartly decide where to get the list from.
+    if (( $# > 0 )); then
+        # Mode 1: from function arguments
+        items_to_process=("$@")
+    elif [[ ! -t 0 ]]; then
+        # Mode 2: from a pipe (stdin is not a terminal)
+        mapfile -t items_to_process
+    else
+        error "Usage: _remove_bases <base1> <base2>... OR <stream> | _remove_bases"
+        return 1
+    fi
+
+    # --- 2. PROCESS THE LIST ---
+    local success_count=0
+    local failure_count=0
+    local total_count=${#items_to_process[@]}
+    info "Attempting to remove ${total_count} base(s)..."
+
+    for base in "${items_to_process[@]}"; do
+        # Call our low-level worker for each item
+        if __remove_one_base "$base"; then
+            ((success_count++))
+        else
+            ((failure_count++))
+        fi
+    done
+
+    # --- 3. REPORT SUMMARY ---
+    line "Removal Complete"
+    info "Success: ${success_count}, Failed: ${failure_count}"
+
+    # Return a failure code if any of the items failed
+    if (( failure_count > 0 )); then
+        return 1
+    fi
+    return 0
+}
+
 ################################################################################
 #
 # __db_query
@@ -1613,7 +1725,8 @@ __backup_db(){
 __confirm_action(){
 	local prompt_msg="$1" critical="$2";
 
-	if [ -n "$critical" ]; then 
+	info "Critical is $critical";
+	if [ -z "$critical" ]; then 
 		if is_dev; then
 			dev "DEV_MODE: Auto-confirming action.";
 			return 0;
@@ -2064,7 +2177,7 @@ do_rebase(){
 	__validate_name "${base_name}" "Base Name" || return 1;
 
 	if __confirm_action "Rebase will delete and recreate base '${base_name}'. All data will be lost. Continue?"; then
-			_remove_base "${base_name}" || return 1;
+			__remove_one_base "${base_name}" || return 1;
 			_create_base "${base_name}" || return 1;
 			okay "Base '${base_name}' rebased.";
 			return 0;
@@ -2100,7 +2213,7 @@ do_unbase(){
 	fi;
 
 	if __confirm_action "Delete base '${base_name}' and ALL its contents? This is irreversible."; then
-			_remove_base "${base_name}" || return 1;
+			__remove_one_base "${base_name}" || return 1;
 			return 0;
 	fi;
 	log "Unbase cancelled.";
