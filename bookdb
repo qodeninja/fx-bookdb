@@ -193,7 +193,8 @@ COUNTER=;
 
 	readonly LINE="$(printf '%.0s-' {1..54})";
 
-
+	readonly invert='\e[7m';
+	readonly italic='\e[3m';
 
 ################################################################################
 #
@@ -675,25 +676,24 @@ is_integer(){
 
 		# Calculates the set difference of two arrays (array1 - array2).
 		# Usage: array_diff <array1_name> <array2_name> <result_array_name>
-		array_diff(){
-			local -n arr1=$1;    # Main array
-			local -n arr2=$2;    # Array of items to remove
-			local -n result=$3;  # Array to store the result
+		array_diff() {
+				local -n arr1=$1
+				local -n arr2=$2
+				local -n result=$3
 
-			# 1. Create a map of items to remove for fast lookups.
-			local -A to_remove_map;
-			for item in "${arr2[@]}"; do
-					to_remove_map[$item]=1;
-			done
+				local -A to_remove_map
+				for item in "${arr2[@]}"; do
+						if [[ -n "$item" ]]; then
+								to_remove_map[$item]=1
+						fi
+				done
 
-			# 2. Iterate through the main array. If an item is NOT in the
-			#    remove map, add it to our result.
-			result=(); # Ensure the result array is empty
-			for item in "${arr1[@]}"; do
-					if [[ ! -v to_remove_map[$item] ]]; then
-							result+=("$item");
-					fi
-			done
+				result=()
+				for item in "${arr1[@]}"; do
+						if [[ ! -v to_remove_map[$item] ]]; then
+								result+=("$item")
+						fi
+				done
 		}
 
 #-------------------------------------------------------------------------------
@@ -1217,7 +1217,7 @@ __ask() {
 			echo "$default"
 			return 0
 	fi
-	builtin printf -v prompt "${blue}%b${xx}${blue}[enter or 'q'] --> ${orange} " "$msg"
+	builtin printf -v prompt "${blue}%b${xx}${blue}[type] --> ${orange} " "$msg"
 	read -p "$prompt" answer
 	case "$answer" in
 		c|q|n|quit|cancel) error "Operation cancelled."; return 1 ;;
@@ -1237,11 +1237,20 @@ is_required_base(){
 
 dev_rem_base(){
 	identify;
-	local base_name="$1" answer bases default ret;
+	local base_name="$1" answer bases default that_bar this_bar prompt_message ret;
 	local -a delete_list=();
 	local -a ignore_list=();
+	local -a deletable_bases=();
+	local -a protected_bases=("home" "config" "test");
+	local protected_pattern;
+
 	mapfile -t bases < <(_list_filterd_bases); 
 	# declare -p bases >&2; debug output
+
+
+	# Create a list of all bases that are NOT protected.
+	protected_pattern=$(printf "^(%s)$" "$(IFS="|"; echo "${protected_bases[*]}")")
+	mapfile -t deletable_bases < <(printf "%s\n" "${bases[@]}" | grep -v -E "$protected_pattern")
 
 
 	#stream_array BASE_LIST >&2;
@@ -1252,38 +1261,39 @@ dev_rem_base(){
 		line "Deletion Pending...";
 
 		# set default target
-		if (( ${#bases[@]} > 0 )); then
-			default="${bases[0]}";
+		if (( ${#deletable_bases[@]} > 0 )); then
+			default="${deletable_bases[0]}";
 			if ! is_required_base "$default"; then
 				warn "Default base to delete is:$default";
 			fi
 		else
-			warn "bases was empty!";
+			error "${invert}SORRY!${xx}${red} there are no bases available. System requires repair!";
+			return 1;
 		fi
 
-
-		local this_bar=$(bar 25 "-" | color_filter "orange" );
-		echo -e "\n$this_bar" >&2;
-		warn "Available Bases [${#bases[@]}]:\n> $BOOK_DEFAULT_BASE (system)";
-		stream_array bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter | color_filter "orange" >&2;
-		echo -e "$this_bar\n" >&2;
-
-		local prompt_message;
 		this_bar=$(bar 60 "-" | color_filter "grey3" );
-		prompt_message=$(cat <<-EOF
-		$this_bar
-		${blue}Which [base] shall we nuke?${xx}
+		that_bar=$(bar 30 "-" | color_filter "grey3" );
+		echo -e "\n$that_bar" >&2;
+		echo -e "${invert}Available Bases [${#deletable_bases[@]}]:" | color_filter "purple2" >&2;
+		echo -e "$that_bar${grey}> $BOOK_DEFAULT_BASE (system)${xx}" >&2;
+		stream_array deletable_bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter  >&2;
+		echo -e "$that_bar\n" >&2;
 
-			A destructive change is pending. Use 'backup' to save data first.
+		prompt_message=$(cat <<-EOF
+			${red}${invert}DEV: REMOVE BASES(s)${xx}
+			${red}Cancel and use 'backup' to save data first.${xx}
 
 			${purple}FILTER SYNTAX:${xx}
+			${that_bar}
 				Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
 				Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
 
 			${purple}ACTIONS:${xx}
-				- Type 'q' or 'cancel' to exit.
-				- Hit <Enter> to accept the default: ${cyan}[$default]${xx}
-				- or Enter filter(s) separated by spaces...\n\n\t
+			${that_bar}${grey}
+				- Cancel:   Type 'q' or 'cancel' to exit.
+				- Continue: Hit <Enter> to accept the default => ${grey3}[$default]${xx}${grey}
+				- Select:   Type filter(s) separated by spaces...\n\n\t
+			${purple}Which [base] shall we nuke? ${xx}
 		EOF
 		);
 
@@ -1294,7 +1304,7 @@ dev_rem_base(){
 
 				read -ra patterns_array <<< "$answer"
 				itrace "Reviewing changes... (got=${patterns_array[*]})" >&2;
-
+				
 				# ex: mapfile -t delete_list < <(stream_array bases | super_substring_filter "${patterns_array[@]}") #streamlined
 				while IFS= read -r line; do
 					if [[ -n "$line" ]]; then
@@ -1302,24 +1312,60 @@ dev_rem_base(){
 							# It's also safer to quote the variable here
 							delete_list+=("$line");
 					fi
-				done < <(stream_array bases | super_substring_filter "${patterns_array[@]}"); ret=$?;
-				array_diff bases delete_list ignore_list;
+				done < <(stream_array deletable_bases | super_substring_filter "${patterns_array[@]}"); ret=$?;
 
-				if [ "${#delete_list[@]}" -gt 0 ]; then 
+
+
+        
+        #    Now, use grep -v to filter the user's list
+        mapfile -t final_delete_list < <(printf "%s\n" "${delete_list[@]}" | grep -v -E "$protected_pattern")
+
+        # 3. (Optional but Recommended) Notify the user if something was removed
+				for protected_name in "${protected_bases[@]}"; do
+						# Check if a protected name was in the user's raw input array
+						for user_pattern in "${patterns_array[@]}"; do
+								# We need to strip the prefix from the user's pattern for a clean compare
+								clean_user_pattern="${user_pattern#[#!%]}"
+								
+								if [[ "$clean_user_pattern" == "$protected_name" ]]; then
+										warn "Attempt to select protected base '${protected_name}' was ignored."
+										break # Move to the next protected name
+								fi
+						done
+				done
+
+        #declare -p final_delete_list >&2; #debug
+
+				# Calculate the 'ignore_list' based on the FINAL delete list, not the user's raw input.
+				array_diff deletable_bases final_delete_list ignore_list;
+
+				# CORRECTED "ALL" CHECK: Compare the final list against the list of all deletable bases.
+				local all_selected=false;
+				if (( ${#final_delete_list[@]} == ${#deletable_bases[@]} )); then
+						all_selected=true;
+				fi
+
+				# You can now use this flag for special actions if needed.
+				if "$all_selected"; then
+						info "All non-protected bases have been selected for deletion.";
+				fi
+
+
+				if [ "${#final_delete_list[@]}" -gt 0 ]; then 
 						# declare -p delete_list >&2; #debug
 						# show the items to be deleted
-						stream_array delete_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
+						stream_array final_delete_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
 						# find ignores;
 
 
 						line "Bases for Deletion";
-						if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${red}unrecoverable${xx}\nContinue?" "critical"; then
+						if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${italic}unrecoverable${xx}\nContinue [y/n]?" "critical"; then
 							#delete items
 							ptrace "These items will be remain after deletion";
 							stream_array ignore_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2;
 							wtrace "One Moment...";
-							sleep 3;
-							printf "%s\n" "${delete_list[@]}" | _remove_bases;
+							sleep 1;
+							printf "%s\n" "${final_delete_list[@]}" | _remove_bases;
 						else
 							#
 							noop; #cancel critical is fatal
@@ -1345,7 +1391,7 @@ list_filter(){
 	done
 }
 
-color_filter(){
+color_filter_each(){
 	local color="${1:-grey}";
 	color=${!color};
 	while IFS= read -r line; do
@@ -1353,7 +1399,14 @@ color_filter(){
 	done
 }
 
-
+color_filter() {
+	local color_name="${1:-grey}";
+	local color_code=${!color_name};
+	local reset_code=${xx};
+	trap 'printf "%s" "${reset_code}"' EXIT;
+	printf "%s" "${color_code}";
+	cat
+}
 # Filters a stream of text, supporting multiple inclusion and exclusion patterns.
 #
 # Usage:
@@ -1381,7 +1434,7 @@ super_substring_filter() {
     if [[ $# -eq 0 ]]; then cat; return 0; fi
 
     local -a includes=() excludes=() exact_include=() exact_exclude=()
-    local found_match=false; # <--- 1. DECLARE FLAG
+    local ALL_MODE=1 found_match=false; # <--- 1. DECLARE FLAG
 
     for arg in "$@"; do
         case "$arg" in
@@ -1389,32 +1442,40 @@ super_substring_filter() {
 					('!'*)  excludes+=("${arg#!}");       ;;
 					('#'*)  exact_include+=("${arg#\#}"); ;;
 					('%'*)  includes+=("${arg#\%}");      ;;
+					('*'*)  ALL_MODE=0;           ;; #include only
 					(*) includes+=("${arg#\%}");  ;;
         esac
     done
 
     while IFS= read -r line; do
-        local is_excluded=false
-        for p in "${exact_exclude[@]}"; do [[ "$line" == "$p" ]] && { is_excluded=true; break; }; done
-        if ! "$is_excluded"; then
-            for p in "${excludes[@]}"; do [[ "$line" == *"$p"* ]] && { is_excluded=true; break; }; done
-        fi
-        if "$is_excluded"; then continue; fi
 
-        local is_included=false
-        if (( ${#exact_include[@]} == 0 && ${#includes[@]} == 0 )); then
-            is_included=true
-        else
-            for p in "${exact_include[@]}"; do [[ "$line" == "$p" ]] && { is_included=true; break; }; done
-            if ! "$is_included"; then
-                for p in "${includes[@]}"; do [[ "$line" == *"$p"* ]] && { is_included=true; break; }; done
-            fi
-        fi
+			if [ "$ALL_MODE" -eq 1 ]; then
+					local is_excluded=false
+					for p in "${exact_exclude[@]}"; do [[ "$line" == "$p" ]] && { is_excluded=true; break; }; done
+					if ! "$is_excluded"; then
+							for p in "${excludes[@]}"; do [[ "$line" == *"$p"* ]] && { is_excluded=true; break; }; done
+					fi
+					if "$is_excluded"; then continue; fi
 
-        if "$is_included"; then
-            found_match=true # <--- 2. SET FLAG ON SUCCESS
-            echo "$line"
-        fi
+					local is_included=false
+					if (( ${#exact_include[@]} == 0 && ${#includes[@]} == 0 )); then
+							is_included=true
+					else
+							for p in "${exact_include[@]}"; do [[ "$line" == "$p" ]] && { is_included=true; break; }; done
+							if ! "$is_included"; then
+									for p in "${includes[@]}"; do [[ "$line" == *"$p"* ]] && { is_included=true; break; }; done
+							fi
+					fi
+			else
+				#include everyting
+				is_included=true;
+			fi
+
+
+			if "$is_included"; then
+				found_match=true # <--- 2. SET FLAG ON SUCCESS
+				echo "$line"
+			fi
     done
 
     # --- 3. FINAL CHECK ---
@@ -1449,7 +1510,8 @@ super_substring_filter() {
 
 		# Pick a random index from 0 to (size - 1) and echo the element.
 		local pick="${arr[$((RANDOM % ${#arr[@]}))]}" #adds pid for unique
-		[ -n "$pick" ] && pick="$pick_$$";
+		
+		[ -n "$pick" ] && pick="${pick}_$$";
 		[ -z "$pick" ] && pick="book_$$";
 		 echo "$pick";
 
@@ -1459,9 +1521,11 @@ super_substring_filter() {
 
 	dev_create_base(){
 		identify;
-		local base_name rand;
-		rand=$(random_pick_array BASE_LIST);
-		_create_base "$rand";
+		local base_name="$1" rand;
+		if [ -z "$base_bame" ]; then 
+			base_bame=$(random_pick_array BASE_LIST);
+		fi
+		_create_base "$base_name";
 	}
 
 #-------------------------------------------------------------------------------
@@ -1725,7 +1789,6 @@ __backup_db(){
 __confirm_action(){
 	local prompt_msg="$1" critical="$2";
 
-	info "Critical is $critical";
 	if [ -z "$critical" ]; then 
 		if is_dev; then
 			dev "DEV_MODE: Auto-confirming action.";
@@ -1735,11 +1798,12 @@ __confirm_action(){
 			return 0;
 		fi
 	else
-		imp "Critical Bumper activated, cannot bypass confirmation!";
+		imp "Dev critical bumper activated, cannot bypass confirmation!";
 	fi
 
 	local confirm;
-	printf "${yellow}%s${xx} [y/N]: " "${prompt_msg}" >&2;
+	local str=$(echo -e "${red2}${prompt_msg}${xx} : ");
+	printf "%b " "${str}" >&2;
 	read -r confirm;
 	if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
 		return 0;
@@ -3588,7 +3652,7 @@ dispatch(){
 	[ -z "$res" ] && wtrace "Passive Return -> ($ret)";
 	echo "$res";
 
-	line "End Driver";
+
 
 	info "Return $ret";
 	exit $ret;
