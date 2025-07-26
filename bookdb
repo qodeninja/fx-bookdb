@@ -291,7 +291,7 @@ trace(){
 	[ -n "$LAST_CMD" ] && last="\n${grey3}[${cyan}↯ $last${grey3}]" || last="";
 
 	# [ -z "$f3" ] && f3="✻";
-	[ -z "$f2" ] || f1="${deep}$f1" && f2="${grey3}<-$f2";
+	[ -z "$f2" ] || f1="${deep}$f1" && f2="${grey3}<-$f2${grey}";
 
 	if [ "$same" -eq 0 ]; then
 		str="\t${grey}└┄┄>> ${grey}";
@@ -382,7 +382,7 @@ dump_buffer(){
 		for i in ${!arr[@]}; do
 			this="${arr[$i]}"
 			[ -n "$this" ] && printf -v "out" "$opt_dump_col(%d) %s$xx" "$i" "$this"
-			warn "$out"
+			printf "%s\n" "$out"
 		done
 	fi
 
@@ -636,20 +636,36 @@ is_integer(){
 
 
 
-# used mostly for globbing files in a directory
-# usage:
-# 		 | > declare -a my_array
-# 		 | > array_from_glob "${DIR}/*.file" my_array
-array_from_glob() { local glob_pattern="$1" # The glob pattern as a string local -n target_array="$2" # Nameref to the array to be populated # Use the glob pattern directly to populate the array target_array=( $glob_pattern ) # Shell will expand $glob_pattern here
-}
+	# used mostly for globbing files in a directory
+	# usage:
+	# 		 | > declare -a my_array
+	# 		 | > array_from_glob "${DIR}/*.file" my_array
+	array_from_glob() { 
+		local glob_pattern="$1"; # The glob pattern as a string local -n 
+		target_array="$2"; # Nameref to the array to be populated 
+		# Use the glob pattern directly to populate the array 
+		target_array=( $glob_pattern ); # Shell will expand $glob_pattern here
+	}
 
-# converts an array to a pipeable stream via namerefs
-# usage: 
-# 		 | > stream_array arr | filter
-stream_array() { local -n arr_ref="$1" # Use nameref to alias the passed array name
- # Check if the nameref successfully points to an array # This provides robustness against non-existent or non-array inputs. # declare -p returns non-zero if variable doesn't exist or isn't array/scalar. # We check for -a (indexed) or -A (associative) in the declare -p output. if ! declare -p "${arr_ref@Q}" &>/dev/null || \ [[ ! "$(declare -p "${arr_ref@Q}" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then error "Error: stream_array expects an array name as its argument." >&2 return 1; # Indicate error fi
- printf "%s\n" "${arr_ref[@]}"; # stream producer
-}
+
+	# converts an array to a pipeable stream via namerefs
+	# usage: 
+	# 		 | > stream_array arr | filter
+	stream_array() { 
+		local -n arr_ref="$1";
+	# Use nameref to alias the passed array name
+	# Check if the nameref successfully points to an array 
+	# This provides robustness against non-existent or non-array inputs. 
+	# declare -p returns non-zero if variable doesn't exist or isn't array/scalar.
+	# We check for -a (indexed) or -A (associative) in the declare -p output.
+		if ! declare -p "${arr_ref@Q}" &>/dev/null || \ 
+		[[ ! "$(declare -p "${arr_ref@Q}" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then 
+			error "Error: stream_array expects an array name as its argument." >&2;
+			return 1; # Indicate error 
+		fi
+		
+		printf "%s\n" "${arr_ref[@]}"; # stream producer 
+	}
 
 
 #-------------------------------------------------------------------------------
@@ -1121,7 +1137,7 @@ __get_sqlite_stream(){
 
 # (low) takes a filepath to an sqlite file and returns its base name
 __get_base_name(){
-	identify;
+	#identify;
 	local file filepath="$1"; 	# does not check for path existence only parses name
 	file=$(basename "${filepath}")
 	file=${file/\.sqlite/};	#remove the .sqlite extension
@@ -1146,6 +1162,7 @@ _list_filterd_bases(){
 }
 
 
+
 # (high) prints bases - direct testable
 dev_dump_bases(){
 	identify;
@@ -1161,17 +1178,182 @@ dev_dump_bases(){
 
 dev_show_sqlite(){
 	identify;
-
 	echo "$BOOK_DATA";
-	
-	#echo "DEBUG: BOOK_DATA is set to <$BOOK_DATA>"
-	#declare -p BOOK_DATA
-
 	__get_sqlite_stream "${BOOK_DATA}";
-	#array_from_glob "${BOOK_DATA}/*.sqlite" arr;	 #stream
-	#printf "%s\n" "${arr[@]}";
-	#ls "${BOOK_DATA}";
+}
 
+__ask(){
+	local msg="$1" default="$2"
+		if [ "${opt_yes:-1}" -eq 1 ]; then # Only prompt if opt_yes is NOT 0 (i.e., not auto-yes)
+		read -p "$msg --> " answer
+		[ -n "$answer" ] && echo "$answer" || echo "$default"
+	else # If opt_yes is 0 (auto-yes), just return the default
+		echo "$default"
+	fi
+}
+
+dev_rem_base(){
+	identify;
+	local base_name="$1" answer bases default;
+	local delete_list;
+	delete_list=();
+	
+	mapfile -t bases < <(_list_filterd_bases); 
+	# declare -p bases >&2; debug output
+	stream_array bases |  pr -4 -t -s'|' | column -t -s'|' >&2;
+
+	#stream_array BASE_LIST >&2;
+
+	if (( ${#bases[@]} > 0 )); then
+			# This line now only runs if it's safe to do so.
+			default="${bases[0]}"
+	else
+	 warn "bases was empty!";
+	fi
+
+	info "Base size is ${#bases[@]}";
+
+	if ! is_var_ref base_name; then
+		if answer=$(__ask "Which base shall we nuke? (%fuzzy #exact !fuzzy !#exact)" "$default"); then
+
+			read -ra patterns_array <<< "$answer"
+			itrace "Processing ... Thank You! We (got=${patterns_array[*]})" >&2;
+
+			stream_array bases | substring_filter "${patterns_array[@]}" | while IFS= read -r line; do
+				if [[ -n "$line" ]]; then
+					trace_item "delete candidate: ${line}";
+					delete_list+=(${line});
+				fi
+			done
+
+			declare -p delete_list >&2; 
+			stream_array delete_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
+
+			line "Bases for Deletion";
+			if __confirm_action "The listed bases will be deleted. Continue?" "critical"; then
+				#_remove_base 
+				noop;
+			fi
+
+
+		fi
+	else
+		debug "rem (got=$basename)";
+	fi
+}
+
+
+color_filter(){
+	local color="${1:-grey}";
+	color=${!color};
+	while IFS= read -r line; do
+		printf "%b\n" "${color}$line${xx}";
+	done
+}
+
+
+# Filters a stream of text, supporting multiple inclusion and exclusion patterns.
+#
+# Usage:
+#   ... | substring_filter "foo" "bar"     # OR: Prints lines containing "foo" OR "bar"
+#   ... | substring_filter "!foo" "!bar"    # AND: Prints lines containing NEITHER "foo" NOR "bar"
+#   ... | substring_filter "foo" "!bar"   # Prints lines containing "foo" AND NOT "bar"
+#   ... | substring_filter              # With no args, prints all lines (like 'cat')
+#
+substring_filter() {
+    # If no patterns are given, just print everything and exit.
+    if [[ $# -eq 0 ]]; then
+        cat
+        return
+    fi
+
+    # --- 1. Argument Parsing ---
+    local -a includes=()
+    local -a excludes=()
+    local -a exact_include=()
+    local -a exact_exclude=()
+
+    for arg in "$@"; do
+        if [[ "$arg" == "!#"* ]]; then
+            exact_exclude+=("${arg#!#}") # Correctly remove '!#'
+        elif [[ "$arg" == "!"* ]]; then
+            excludes+=("${arg#!}")
+        elif [[ "$arg" == "#"* ]]; then
+            exact_include+=("${arg#\#}")
+        elif [[ "$arg" == "%"* ]]; then
+            includes+=("${arg#\%}")
+        else
+            # CORRECTED: Warn about the invalid argument but continue parsing others.
+            warn "Invalid argument '$arg': Missing prefix (use %, !, #, !#). Skipping this argument."
+        fi
+    done
+
+    # --- 2. Main Filtering Loop ---
+    while IFS= read -r line; do
+        local is_excluded=false
+        local is_included=false
+
+        # --- Rule A: Exclude Exact Matches (HIGHEST precedence) ---
+        for pattern in "${exact_exclude[@]}"; do
+            # CORRECTED SYNTAX: For an exact match, no wildcards are needed.
+            if [[ "$line" == "$pattern" ]]; then
+                is_excluded=true;
+                break
+            fi
+        done
+        if "$is_excluded"; then continue; fi
+
+        # --- Rule B: Exclude Fuzzy Matches ---
+        for pattern in "${excludes[@]}"; do
+            if [[ "$line" == *"$pattern"* ]]; then
+                is_excluded=true
+                break
+            fi
+        done
+        if "$is_excluded"; then continue; fi
+
+
+        # --- Inclusion Logic ---
+        # If we get here, the line has survived all exclusion filters.
+        # Now we decide if it should be included.
+
+        # --- Rule C: Check for Exact Includes ---
+        # If this passes, we include it immediately.
+        if (( ${#exact_include[@]} > 0 )); then
+            for pattern in "${exact_include[@]}"; do
+                # CORRECTED SYNTAX
+                if [[ "$line" == "$pattern" ]]; then
+                    is_included=true
+                    break
+                fi
+            done
+        fi
+        # Optimization: If an exact match was found, we can print and skip other checks.
+        if "$is_included"; then
+            echo "$line"
+            continue
+        fi
+
+        # --- Rule D: Check for Fuzzy Includes ---
+        # This only runs if no exact match was found above.
+        # If there are no fuzzy include patterns, everything that wasn't excluded is a match.
+        if (( ${#includes[@]} == 0 )); then
+            is_included=true
+        else
+            # Otherwise, check if it matches at least one fuzzy pattern.
+            for pattern in "${includes[@]}"; do
+                if [[ "$line" == *"$pattern"* ]]; then
+                    is_included=true
+                    break
+                fi
+            done
+        fi
+
+        # If the line passed the inclusion checks, print it.
+        if "$is_included"; then
+            echo "$line"
+        fi
+    done
 }
 
 #-------------------------------------------------------------------------------
@@ -1180,10 +1362,10 @@ dev_show_sqlite(){
 
 
 
-	BASE_LIST=( apple banana cherry durian elder fig guava honeydew \ 
-							imbe jackfruit kiwi lime mango orange pineapple \ 
-							quince raspberry strawberry tangerine uglifruit \
-							vanilla watermelon xigua yuzu zucchini );
+	BASE_LIST=(apple banana cherry durian elder fig guava honeydew\
+						imbe jackfruit kiwi lime mango orange pineapple\
+						quince raspberry strawberry tangerine uglifruit\
+						vanilla watermelon xigua yuzu zucchini);
 
 
 	random_pick_array(){
@@ -1198,7 +1380,12 @@ dev_show_sqlite(){
 		fi
 
 		# Pick a random index from 0 to (size - 1) and echo the element.
-		echo "${arr[$((RANDOM % ${#arr[@]}))]}_$$" #adds pid for unique
+		local pick="${arr[$((RANDOM % ${#arr[@]}))]}" #adds pid for unique
+		[ -n "$pick" ] && pick="$pick_$$";
+		[ -z "$pick" ] && pick="book_$$";
+		 echo "$pick";
+
+		return 0;
 	}
 
 
@@ -1221,7 +1408,7 @@ _create_base(){
 
 	base_path=$(_get_base_path "$base_name"); #requires BOOK_DATA to be valid
 
-	itrace "Datastore found sql (got=$base_path)";
+	#itrace "Datastore found sql (got=$base_path)";
 	# ex: mapfile -t bases < <(_list_filterd_bases); #correct load array from func
 
 	# System-level guard: check if file already exists
@@ -1230,14 +1417,13 @@ _create_base(){
 		return 1;
 	fi
 
-	itrace "Base Path (got=${base_path})";
-
+	itrace "Base @ (got=${base_path})";
 
 
 	# System-level guard: check if path is writable
 	if ! is_rw_filepath "${base_path}"; then
-			etrace "Cannot create database: Path is not writable: '${base_path}'.";
-			return 1;
+		etrace "Cannot create database: Path is not writable: '${base_path}'.";
+		return 1;
 	fi
 
 	touch "${base_path}" || { error "Failed to create database file: ${base_path}"; return 1; };
@@ -1257,11 +1443,10 @@ _create_base(){
 	return $ret;
 }
 
-################################################################################
-#
-# _remove_base (Mid-Ordinal)
-#
-################################################################################
+
+#-------------------------------------------------------------------------------
+# @remove_base - start a new basefile
+#-------------------------------------------------------------------------------
 # Description: Deletes a database file. Contains no user-level safety.
 _remove_base(){
 	local base_name="$1";
@@ -1398,20 +1583,27 @@ __backup_db(){
 ################################################################################
 # Description: Prompts the user for confirmation before proceeding with an action.
 __confirm_action(){
-	local prompt_msg="$1";
-	if is_dev; then
-		dev "DEV_MODE: Auto-confirming action.";
-		return 0;
+	local prompt_msg="$1" critical="$2";
+
+	if [ -n "$critical" ]; then 
+		if is_dev; then
+			dev "DEV_MODE: Auto-confirming action.";
+			return 0;
+		fi
+		if [[ -n "$opt_yes" ]]; then
+			return 0;
+		fi
+	else
+		imp "Critical Bumper activated, cannot bypass confirmation!";
 	fi
-	if [[ -n "$opt_yes" ]]; then
-		return 0;
-	fi
+
 	local confirm;
 	printf "${yellow}%s${xx} [y/N]: " "${prompt_msg}" >&2;
 	read -r confirm;
 	if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
 		return 0;
 	else
+		[ -n "$critical" ] && { fatal "Critical Execution Cancelled.";  } 
 		return 1;
 	fi
 }
@@ -3107,7 +3299,7 @@ __low_inspect(){
 		| awk '{print $3}' \
 		| grep -E "$pattern" \
 		| sed 's/^/ /' \
-		| sort
+		| sort;
 }
 
 
@@ -3200,7 +3392,7 @@ dispatch(){
 		(sanity) dev_sanity; ret=$?; ;;
 		(\#)
 			magic "Dev mode sub call!";
-			dev_sub_call "${ARGS[@]}";
+			 dev_driver "${ARGS[@]}";
 		;;
 		(*) error "Unknown command: ${cmd}"; usage; ;;
 	esac
@@ -3208,24 +3400,27 @@ dispatch(){
 }
 
 #-------------------------------------------------------------------------------
-# @devsub
+# @driver
 #-------------------------------------------------------------------------------
 
-dev_sub_call(){
+ dev_driver(){
 	identify;
 	local cmd ret;
 	[ -n "$DID_DEV_SUB" ] && error "[DEV] Subcall already ran in prev context." && exit 1;
 	is_user && error "[DEV] Subcall is only available in DEV MODE (got=$DEV_MODE)" && exit 2;
+	shift;
+	mtrace "args: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ]"; #originals
 	# first shift the dispatch command off
-		shift;
-		cmd="$1"
 
-		DID_DEV_SUB=1;
-		mtrace "args: 1[ $1 ] 2[ $2 ] 3[ $3 ] 4[ $4 ] 5[ $5 ]";
-		line "Start DEV";
+	cmd="$1";
+	shift;
 
+	DID_DEV_SUB=1;
 
-	
+	line "Start Driver";
+
+	LAST_CMD="$cmd";
+
 	if [[ "$cmd" =~ "insp" ]]; then
 		__low_inspect "$@";
 	elif is_function "$cmd"; then
@@ -3245,13 +3440,14 @@ dev_sub_call(){
 			warn "Could not detect a usable function (got=$cmd, sub=$sub, dev=$devsub). Skipped."
 		fi
 	fi
-
+	line "Outcome";
 	#info "(got=$cmd, sub=$sub, dev=$devsub)";
-	[ -n "$res" ] && dev "Debug Response -> $res";
-	[ -z "$res" ] && wtrace "Passive Call, return only ($ret)";
+	trace "[$LAST_CMD] Outcome";
+	[ -n "$res" ] && dev "Debug Response -> [res=$res]";
+	[ -z "$res" ] && wtrace "Passive Return -> ($ret)";
 	echo "$res";
 
-	line "End DEV";
+	line "End Driver";
 
 	info "Return $ret";
 	exit $ret;
@@ -3422,7 +3618,7 @@ main(){
 		(dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
 		(\$)
 			mtrace "Dev mode sub call! ";
-			dev_sub_call "${ARGS[@]}";
+			 dev_driver "${ARGS[@]}";
 			LAST_CMD="DEV"; #label update
 		;;
 	esac
