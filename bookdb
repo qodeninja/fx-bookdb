@@ -1235,153 +1235,122 @@ is_required_base(){
 	fi
 }
 
-dev_rem_base(){
-	identify;
-	local base_name="$1" answer bases default that_bar this_bar prompt_message ret;
-	local -a delete_list=();
-	local -a ignore_list=();
-	local -a deletable_bases=();
-	local -a protected_bases=("home" "config" "test");
-	local protected_pattern;
+dev_rem_base() {
+    identify
+    local base_name="$1" answer bases default that_bar this_bar prompt_message ret
+    local -a delete_list=()
+    local -a ignore_list=()
+    local -a deletable_bases=()
+    local -a protected_bases=("home" "config" "test")
+    local protected_pattern
 
-	mapfile -t bases < <(_list_filterd_bases); 
-	# declare -p bases >&2; debug output
+    # --- 1. SETUP: Prepare our lists of bases ---
+    mapfile -t bases < <(_list_filterd_bases)
 
+    protected_pattern=$(printf "^(%s)$" "$(IFS="|"; echo "${protected_bases[*]}")")
+    mapfile -t deletable_bases < <(printf "%s\n" "${bases[@]}" | grep -v -E "$protected_pattern")
 
-	# Create a list of all bases that are NOT protected.
-	protected_pattern=$(printf "^(%s)$" "$(IFS="|"; echo "${protected_bases[*]}")")
-	mapfile -t deletable_bases < <(printf "%s\n" "${bases[@]}" | grep -v -E "$protected_pattern")
+    if ! is_var_ref base_name; then
+        # --- 2. PRE-PROMPT: Display info to the user ---
+        line "Deletion Pending..."
 
-
-	#stream_array BASE_LIST >&2;
-
-	if ! is_var_ref base_name; then
-
-
-		line "Deletion Pending...";
-
-		# set default target
-		if (( ${#deletable_bases[@]} > 0 )); then
-			default="${deletable_bases[0]}";
-			if ! is_required_base "$default"; then
-				warn "Default base to delete is:$default";
-			fi
-		else
-			error "${invert}SORRY!${xx}${red} there are no bases available. System requires repair!";
-			return 1;
-		fi
-
-		this_bar=$(bar 60 "-" | color_filter "grey3" );
-		that_bar=$(bar 30 "-" | color_filter "grey3" );
-		echo -e "\n$that_bar" >&2;
-		echo -e "${invert}Available Bases [${#deletable_bases[@]}]:" | color_filter "purple2" >&2;
-		echo -e "$that_bar${grey}> $BOOK_DEFAULT_BASE (system)${xx}" >&2;
-		stream_array deletable_bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter  >&2;
-		echo -e "$that_bar\n" >&2;
-
-		prompt_message=$(cat <<-EOF
-			${red}${invert}DEV: REMOVE BASES(s)${xx}
-			${red}Cancel and use 'backup' to save data first.${xx}
-
-			${purple}FILTER SYNTAX:${xx}
-			${that_bar}
-				Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
-				Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
-
-			${purple}ACTIONS:${xx}
-			${that_bar}${grey}
-				- Cancel:   Type 'q' or 'cancel' to exit.
-				- Continue: Hit <Enter> to accept the default => ${grey3}[$default]${xx}${grey}
-				- Select:   Type filter(s) separated by spaces...\n\n\t
-			${purple}Which [base] shall we nuke? ${xx}
-		EOF
-		);
+        if (( ${#deletable_bases[@]} > 0 )); then
+            default="${deletable_bases[0]}"
+            # (Optional: your is_required_base check can go here)
+            warn "Default base to delete is: $default"
+        else
+            error "${invert}SORRY!${xx}${red} there are no deletable bases available."
+            return 1
+        fi
 
 
-		if answer=$(__ask "$prompt_message" "$default"); then
-				# ... your logic continues here ...
-				echo "Processing answer: $answer"
+				this_bar=$(bar 60 "-" | color_filter "grey3" );
+				that_bar=$(bar 30 "-" | color_filter "grey3" );
+				echo -e "\n$that_bar" >&2;
+				echo -e "${invert}Available Bases [${#deletable_bases[@]}]:" | color_filter "purple2" >&2;
+				echo -e "$that_bar${grey}> $BOOK_DEFAULT_BASE (system)${xx}" >&2;
+				stream_array deletable_bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter  >&2;
+				echo -e "$that_bar\n" >&2;
 
-				read -ra patterns_array <<< "$answer"
-				itrace "Reviewing changes... (got=${patterns_array[*]})" >&2;
-				
-				# ex: mapfile -t delete_list < <(stream_array bases | super_substring_filter "${patterns_array[@]}") #streamlined
-				while IFS= read -r line; do
-					if [[ -n "$line" ]]; then
-							# trace_item "delete candidate: ${line}";
-							# It's also safer to quote the variable here
-							delete_list+=("$line");
-					fi
-				done < <(stream_array deletable_bases | super_substring_filter "${patterns_array[@]}"); ret=$?;
+				prompt_message=$(cat <<-EOF
+					${red}${invert}DEV: REMOVE BASES(s)${xx}
+					${red}Cancel and use 'backup' to save data first.${xx}
 
+					${purple}FILTER SYNTAX:${xx}
+					${that_bar}
+						Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
+						Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
 
-
-        
-        #    Now, use grep -v to filter the user's list
-        mapfile -t final_delete_list < <(printf "%s\n" "${delete_list[@]}" | grep -v -E "$protected_pattern")
-
-        # 3. (Optional but Recommended) Notify the user if something was removed
-				for protected_name in "${protected_bases[@]}"; do
-						# Check if a protected name was in the user's raw input array
-						for user_pattern in "${patterns_array[@]}"; do
-								# We need to strip the prefix from the user's pattern for a clean compare
-								clean_user_pattern="${user_pattern#[#!%]}"
-								
-								if [[ "$clean_user_pattern" == "$protected_name" ]]; then
-										warn "Attempt to select protected base '${protected_name}' was ignored."
-										break # Move to the next protected name
-								fi
-						done
-				done
-
-        #declare -p final_delete_list >&2; #debug
-
-				# Calculate the 'ignore_list' based on the FINAL delete list, not the user's raw input.
-				array_diff deletable_bases final_delete_list ignore_list;
-
-				# CORRECTED "ALL" CHECK: Compare the final list against the list of all deletable bases.
-				local all_selected=false;
-				if (( ${#final_delete_list[@]} == ${#deletable_bases[@]} )); then
-						all_selected=true;
-				fi
-
-				# You can now use this flag for special actions if needed.
-				if "$all_selected"; then
-						info "All non-protected bases have been selected for deletion.";
-				fi
+					${purple}ACTIONS:${xx}
+					${that_bar}${grey}
+						- Cancel:   Type 'q' or 'cancel' to exit.
+						- Continue: Hit <Enter> to accept the default => ${grey3}[$default]${xx}${grey}
+						- Select:   Type filter(s) separated by spaces...\n\n\t
+					${purple}Which [base] shall we nuke? ${xx}
+				EOF
+				);
 
 
-				if [ "${#final_delete_list[@]}" -gt 0 ]; then 
-						# declare -p delete_list >&2; #debug
-						# show the items to be deleted
-						stream_array final_delete_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2;
-						# find ignores;
+        if answer=$(__ask "$prompt_message" "$default"); then
+            read -ra patterns_array <<< "$answer"
+            itrace "Reviewing changes... (got=${patterns_array[*]})" >&2
 
+            # --- 4. PRE-FLIGHT SAFETY CHECKS (The New, Smart Logic) ---
+            local -a user_selection=()
+            for pat in "${patterns_array[@]}"; do
+                user_selection+=("${pat#[#!%#]}") # Get clean names of what the user typed
+            done
+            
+            # Find the intersection between user's request and protected list efficiently
+            local -a attempted_protected=()
+            mapfile -t attempted_protected < <(grep -F -x -f <(printf "%s\n" "${protected_bases[@]}") <(printf "%s\n" "${user_selection[@]}"))
+            
+            # If they tried to select any protected bases, warn them.
+            if (( ${#attempted_protected[@]} > 0 )); then
+                for base in "${attempted_protected[@]}"; do
+                    warn "Attempt to select protected base '${base}' was ignored."
+                done
+                
+                # If their ONLY selections were protected items, abort gracefully.
+                if (( ${#attempted_protected[@]} == ${#user_selection[@]} )); then
+                    error "No valid, non-protected items were selected. Aborting."
+                    return 1
+                fi
+            fi
 
-						line "Bases for Deletion";
-						if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${italic}unrecoverable${xx}\nContinue [y/n]?" "critical"; then
-							#delete items
-							ptrace "These items will be remain after deletion";
-							stream_array ignore_list |  pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2;
-							wtrace "One Moment...";
-							sleep 1;
-							printf "%s\n" "${final_delete_list[@]}" | _remove_bases;
-						else
-							#
-							noop; #cancel critical is fatal
-						fi
-				else
-					error "Selection resulted in zero work! Skipping.";
-					return 1;
-				fi
+            # --- 5. EXECUTE THE FILTER ---
+            # Now we create the final delete list. It's guaranteed to be safe because
+            # we are filtering from 'deletable_bases'.
+            mapfile -t delete_list < <(stream_array deletable_bases | super_substring_filter "${patterns_array[@]}")
 
+            # --- 6. POST-FILTER CHECKS & DISPLAY ---
+            if (( ${#delete_list[@]} > 0 )); then
+                # Calculate what was ignored FROM THE DELETABLE SET
+                array_diff deletable_bases delete_list ignore_list
+                
+                # Check if all possible deletable items were selected
+                if (( ${#delete_list[@]} == ${#deletable_bases[@]} )); then
+                    info "All non-protected bases have been selected for deletion."
+                fi
 
-		fi #endif
-
-
-	else
-		debug "rem (got=$basename)";
-	fi
+                stream_array delete_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2
+                line "Bases for Deletion"
+                
+                if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${italic}unrecoverable${xx}\nContinue [y/n]?" "critical"; then
+                    ptrace "These items will remain after deletion (from the deletable set):"
+                    stream_array ignore_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2
+                    wtrace "One Moment..."
+                    sleep 1
+                    printf "%s\n" "${delete_list[@]}" | _remove_bases
+                fi
+            else
+                error "Selection resulted in zero work! Skipping."
+                return 1
+            fi
+        fi
+    else
+        debug "rem (got=$basename)"
+    fi
 }
 
 list_filter(){
