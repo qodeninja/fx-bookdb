@@ -46,6 +46,20 @@
 		[test_mode]=1
 	);
 
+
+# DOCSTORE UPDATE WITH VARSTORE MIGRATION ...
+# 	-- How to find the value of 'mykey' in 'base@proj.doc.store.mykey'
+# SELECT v.v_value
+# FROM vars v
+# JOIN varstores vs ON v.vs_id_fk = vs.vs_id
+# JOIN docspaces d ON vs.d_id_fk = d.d_id
+# JOIN projects p ON d.p_id_fk = p.p_id
+# WHERE
+#     p.p_name = 'proj' AND
+#     d.d_name = 'doc' AND
+#     vs.vs_name = 'store' AND
+#     v.v_key = 'mykey';
+
 #-------------------------------------------------------------------------------
 # Flags 0=true and 1=false. Do not use true/false
 #-------------------------------------------------------------------------------
