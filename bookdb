@@ -210,11 +210,9 @@ COUNTER=;
 	readonly invert='\e[7m';
 	readonly italic='\e[3m';
 
-################################################################################
-#
-# stderr
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @stderr
+#-------------------------------------------------------------------------------
 # Description: Controls output based on QUIET_MODE and force parameter.
 # Arguments:
 # 1: msg (string) - The message to print.
@@ -241,6 +239,9 @@ stderr(){
 }
 # note using | fmt -w 100 <-- needs fixing to work with our stderr.
 
+#-------------------------------------------------------------------------------
+# @stdoutt
+#-------------------------------------------------------------------------------
 # stdoutt : Switch for stderr to use stdout instead (for test capture).
 # --printer stdoutt
 stdoutt(){
@@ -254,15 +255,36 @@ stdoutt(){
 # Standard Printers with Tracing
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+# @fatal
+#-------------------------------------------------------------------------------
 fatal(){ stderr "${red}${*}" "force" "error"; exit 1; } #auto exit
+#-------------------------------------------------------------------------------
+# @error
+#-------------------------------------------------------------------------------
 error(){ stderr "${red}${*}" "force" "error"; }
+#-------------------------------------------------------------------------------
+# @warn
+#-------------------------------------------------------------------------------
 warn(){ stderr "${orange}${*}"; }
+#-------------------------------------------------------------------------------
+# @okay
+#-------------------------------------------------------------------------------
 okay(){ stderr "${green}${*}"; }
+#-------------------------------------------------------------------------------
+# @info
+#-------------------------------------------------------------------------------
 info(){ stderr "${blue}${*}"; }
 
 
 # we generally dont use log but its here for completeness
+#-------------------------------------------------------------------------------
+# @log
+#-------------------------------------------------------------------------------
 log(){ stderr "${white2}${*}"; }
+#-------------------------------------------------------------------------------
+# @line
+#-------------------------------------------------------------------------------
 line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 
 # todo: need trap support
@@ -272,21 +294,42 @@ line(){ stderr "\n\n$grey3$LINE ($1)$xx\n"; }
 #-------------------------------------------------------------------------------
 
 
+#-------------------------------------------------------------------------------
+# @identify
+#-------------------------------------------------------------------------------
 # force a function to identify itself
 identify(){
 	local level="${#FUNCNAME[@]}" f2="${FUNCNAME[2]}" ;
 	is_dev && stderr "${grey}⟡┄┄┄[${white2}${FUNCNAME[1]}${grey}]${grey3}<-$f2";
 }
 
+#-------------------------------------------------------------------------------
+# @magic
+#-------------------------------------------------------------------------------
 magic(){ is_dev && stderr "${purple}${*}" "force"; }
+#-------------------------------------------------------------------------------
+# @debug
+#-------------------------------------------------------------------------------
 debug(){ is_dev && stderr "${cyan}${*}" "force"; }
 
+#-------------------------------------------------------------------------------
+# @dev
+#-------------------------------------------------------------------------------
 # standard dev tree printer
-dev(){ is_dev && stderr "\n${cyan}>> [${deep}${FUNCNAME[1]}${cyan}]\n\t└┄┄ ${*} " "force"; }
+dev(){ is_dev && stderr "${cyan}>> [${deep}${FUNCNAME[1]}${cyan}]└┄┄ ${*} " "force"; }
 
+#-------------------------------------------------------------------------------
+# @devbar
+#-------------------------------------------------------------------------------
 devbar(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${LINE}" "force"; }
+#-------------------------------------------------------------------------------
+# @devlog
+#-------------------------------------------------------------------------------
 devlog(){ is_dev && stderr "${cyan}⋈ [ DEV ] ${1}" "force"; }
 
+#-------------------------------------------------------------------------------
+# @imp
+#-------------------------------------------------------------------------------
 # critical warnings
 imp(){ is_dev && stderr "${red2}⨹ IMP! ${x}${*}" "force"; }
 
@@ -295,6 +338,9 @@ imp(){ is_dev && stderr "${red2}⨹ IMP! ${x}${*}" "force"; }
 # Advanced Printers
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+# @trace
+#-------------------------------------------------------------------------------
 trace(){
 	is_dev || return 0;
 	local f1="${FUNCNAME[1]}" f2="${FUNCNAME[2]}" f3="${FUNCNAME[3]}";
@@ -324,6 +370,9 @@ trace(){
 # Pretty Tracers
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+# @_make_lbl
+#-------------------------------------------------------------------------------
 _make_lbl(){
 	local col0 col1=$1 lbl=$2 all=$3;
 	[ -n "$all" ] && col0="${!all}" || all="";
@@ -331,17 +380,50 @@ _make_lbl(){
 	printf "\t${col_str}└┄┄[ ${!col1}$lbl${col_str} ] ${white}${col0}";
 }
 
+#-------------------------------------------------------------------------------
+# @ftrace
+#-------------------------------------------------------------------------------
 ftrace(){ local __=$(_make_lbl "red" "fatal"); stderr "$__ ${*}" "force" "error"; }
+#-------------------------------------------------------------------------------
+# @etrace
+#-------------------------------------------------------------------------------
 etrace(){ local __=$(_make_lbl "red" "error" "red"); stderr "$__ ${*}" "force" "error"; }
+#-------------------------------------------------------------------------------
+# @wtrace
+#-------------------------------------------------------------------------------
 wtrace(){ local __=$(_make_lbl "orange2" "warn" "orange" ); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @ptrace
+#-------------------------------------------------------------------------------
 ptrace(){ local __=$(_make_lbl "green2" "okay" "green"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @itrace
+#-------------------------------------------------------------------------------
 itrace(){ local __=$(_make_lbl "cyan" "info" "blue"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @mtrace
+#-------------------------------------------------------------------------------
 mtrace(){ local __=$(_make_lbl "purple" "magic"); stderr "$__ ${*}"; }
 
+#-------------------------------------------------------------------------------
+# @trace_add
+#-------------------------------------------------------------------------------
 trace_add(){ local __=$(_make_lbl "green" "+"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @trace_sub
+#-------------------------------------------------------------------------------
 trace_sub(){ local __=$(_make_lbl "red" "-"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @trace_found
+#-------------------------------------------------------------------------------
 trace_found(){ local __=$(_make_lbl "blue" "✻"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @trace_done
+#-------------------------------------------------------------------------------
 trace_done(){ local __=$(_make_lbl "green" "✔"); stderr "$__ ${*}"; }
+#-------------------------------------------------------------------------------
+# @trace_item
+#-------------------------------------------------------------------------------
 trace_item(){ local __=$(_make_lbl "purple" "⟐"); stderr "$__ ${*}"; }
 
 
@@ -351,8 +433,11 @@ trace_item(){ local __=$(_make_lbl "purple" "⟐"); stderr "$__ ${*}"; }
 #-------------------------------------------------------------------------------
 
 
+#-------------------------------------------------------------------------------
+# @bar
+#-------------------------------------------------------------------------------
 bar(){
-	local len="${1:-54}"; local char="${2:O}"; # Default to '-' if no character is provided
+	local len="${1:-54}"; local char="${2:o}"; # Default to 'o' if no character is provided
 	local line_str;
 	printf -v line_str '%*s' "$len" '';
 	line_str=${line_str// /${char}};
@@ -360,6 +445,9 @@ bar(){
 	return 0;
 }
 
+#-------------------------------------------------------------------------------
+# @dump_vars
+#-------------------------------------------------------------------------------
 dump_vars(){
 	identify;
 	if [[ $# -eq 0 ]]; then
@@ -389,28 +477,34 @@ dump_vars(){
 	done
 }
 
+#-------------------------------------------------------------------------------
+# @dump_buffer
+#-------------------------------------------------------------------------------
 dump_buffer(){
 	identify;
 	local arr col opt_dump_col="$orange";
 	arr=("${@}"); len=${#arr[@]}
 	if [ $len -gt 0 ]; then
 		for i in ${!arr[@]}; do
-			this="${arr[$i]}"
-			[ -n "$this" ] && printf -v "out" "$opt_dump_col(%d) %s$xx" "$i" "$this"
-			printf "%s\n" "$out"
+			this="${arr[$i]}";
+			[ -n "$this" ] && printf -v "out" "$opt_dump_col(%d) %s$xx" "$i" "$this";
+			printf "%s\n" "$out";
 		done
 	fi
 
 }
 
-dump_assoc_array_kv() {
+#-------------------------------------------------------------------------------
+# @dump_assoc_array_kv
+#-------------------------------------------------------------------------------
+dump_assoc_array_kv(){
 	identify;
-	local -n arr_ref="$1" # Reference the associative array by name
-	local line  # Variable to store each formatted line
+	local -n arr_ref="$1"; # Reference the associative array by name
+	local line;  # Variable to store each formatted line
 
 	for key in "${!arr_ref[@]}"; do
-		printf -v line "%s=%s" "$key" "${arr_ref[$key]}"
-		warn "$line"
+		printf -v line "%s=%s" "$key" "${arr_ref[$key]}";
+		warn "$line";
 	done
 }
 
@@ -420,16 +514,17 @@ dump_assoc_array_kv() {
 #-------------------------------------------------------------------------------
 # @Guards
 #-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# @is_function
+#-------------------------------------------------------------------------------
 # lib function checks if a function is in scope
 is_function(){
 	declare -F "$1" &>/dev/null;
 }
 
-################################################################################
-#
-# __is_empty
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__is_empty
+#-------------------------------------------------------------------------------
 # Description: Checks if a string is empty or contains only whitespace.
 # Arguments:
 # 1: str (string) - The string to check.
@@ -439,11 +534,9 @@ __is_empty(){
 	return $?; # Explicit return for clarity
 }
 
-################################################################################
-#
-# is_empty
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_empty
+#-------------------------------------------------------------------------------
 # Description: Checks if any of the given variable NAMES (not values) are empty
 #  or contain only whitespace.
 # Usage: is_empty "VAR_A" "VAR_B"
@@ -460,11 +553,9 @@ is_empty(){
 	return 1; # None were empty, failure (is_empty is false)
 }
 
-################################################################################
-#
-# is_defined
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_defined
+#-------------------------------------------------------------------------------
 # Description: Checks if a given string has a non-empty, non-whitespace value.
 # Arguments:
 # 1: str (string) - The string to check.
@@ -474,19 +565,20 @@ is_defined(){
 	return $?;
 }
 
+#-------------------------------------------------------------------------------
+# @is_var_ref
+#-------------------------------------------------------------------------------
 # requires an existing variable with a non empty value uses var and not $var
 is_var_ref(){
 	local var_name="$1";
 	local -n var_ref="$var_name"; # Use nameref to access the actual variable
-  [[ -n "$var_ref" ]]; 
+	[[ -n "$var_ref" ]]; 
 }
 
 
-################################################################################
-#
-# is_file
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_file
+#-------------------------------------------------------------------------------
 # Description: Checks if a given path exists and is a regular file.
 # Arguments:
 # 1: path (string) - The path to check.
@@ -496,6 +588,9 @@ is_file(){
 	return $?;
 }
 
+#-------------------------------------------------------------------------------
+# @is_dir_ref
+#-------------------------------------------------------------------------------
 # similar to is_var_ref
 is_dir_ref(){ 
 	local dir_name="$1";
@@ -503,11 +598,9 @@ is_dir_ref(){
 	[[ -n "$dir_ref" ]] && [[ -d "$dir_ref" ]];
 }
 
-################################################################################
-#
-# is_chain
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_chain
+#-------------------------------------------------------------------------------
 # Description: Checks if a given string starts with a context chain prefix
 #  (@ or %).
 # Arguments:
@@ -519,11 +612,9 @@ is_chain(){
 	return $?;
 }
 
-################################################################################
-#
-# is_rw_filepath
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_rw_filepath
+#-------------------------------------------------------------------------------
 # Description: Checks if a given file path is writable. This means the parent
 #  directory is writable, and if the file itself exists, it must
 #  also be writable.
@@ -543,11 +634,9 @@ is_rw_filepath(){
 	return 0;
 }
 
-################################################################################
-#
-# is_rw_file
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_rw_file
+#-------------------------------------------------------------------------------
 # Description: Checks if a given path exists and is a regular file that is
 #  both readable and writable.
 # Arguments:
@@ -558,11 +647,9 @@ is_rw_file(){
 	return $?;
 }
 
-################################################################################
-#
-# is_name
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_name
+#-------------------------------------------------------------------------------
 # Description: Checks if ALL of the given variable NAMES have a non-empty value.
 # Usage: is_name "VAR_A" "VAR_B"
 # Arguments:
@@ -578,28 +665,29 @@ is_name(){
 	return 0; # All had values
 }
 
-################################################################################
-#
-# is_integer
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_integer
+#-------------------------------------------------------------------------------
 # Description: Checks if a given string is a valid integer (positive or negative).
 # Arguments:
 # 1: val (string) - The string to check.
 # Returns: 0 (true) if it is an integer, 1 (false) otherwise.
-is_integer(){
-	local val="$1";
-	# The regex checks for an optional leading hyphen, followed by one or more digits,
-	# and nothing else from start (^) to end ($).
-	[[ "${val}" =~ ^-?[0-9]+$ ]];
-	return $?;
-}
+	is_integer(){
+		local val="$1";
+		# The regex checks for an optional leading hyphen, followed by one or more digits,
+		# and nothing else from start (^) to end ($).
+		[[ "${val}" =~ ^-?[0-9]+$ ]];
+		return $?;
+	}
 
 #-------------------------------------------------------------------------------
 # @array - Bash 5 Features, note these functions use nameref (implicit _ref)
 #-------------------------------------------------------------------------------
 
 
+#-------------------------------------------------------------------------------
+# @is_array
+#-------------------------------------------------------------------------------
 	is_array(){
 		identify;
 		local var_name="$1"
@@ -618,6 +706,9 @@ is_integer(){
 
 
 
+#-------------------------------------------------------------------------------
+# @array_len
+#-------------------------------------------------------------------------------
 	array_len(){
 		identify;
 		local var_name="$1";
@@ -634,6 +725,12 @@ is_integer(){
 	}
 
 
+#-------------------------------------------------------------------------------
+# @is_empty_array
+#-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# @is_empty_array
+#-------------------------------------------------------------------------------
 	is_empty_array(){
 		identify;
 		local var_name="$1"
@@ -651,10 +748,13 @@ is_integer(){
 
 
 
-	# used mostly for globbing files in a directory
-	# usage:
-	# 		 | > declare -a my_array
-	# 		 | > array_from_glob "${DIR}/*.file" my_array
+#-------------------------------------------------------------------------------
+# @array_from_glob
+#-------------------------------------------------------------------------------
+# used mostly for globbing files in a directory
+# usage:
+# 		 | > declare -a my_array
+# 		 | > array_from_glob "${DIR}/*.file" my_array
 
 	array_from_glob() { 
 		local glob_pattern="$1"; # The glob pattern as a string local -n 
@@ -664,62 +764,74 @@ is_integer(){
 	}
 
 
+#-------------------------------------------------------------------------------
+# @stream_array
+#-------------------------------------------------------------------------------
 	# converts an array to a pipeable stream via namerefs
 	# usage: 
 	# 		 | > stream_array arr | filter
 	stream_array() {
-			# The first argument is the STRING NAME of the array.
-			local array_name="$1";
+		# The first argument is the STRING NAME of the array.
+		local array_name="$1";
 
-			# --- VALIDATION (using the name) ---
-			# First, check if the variable with this name is actually an array.
-			# This check is performed on the NAME, not the content.
-			if [[ ! "$(declare -p "$array_name" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then
-					error "Error: stream_array expects the name of an array as its argument." >&2;
-					return 1;
-			fi
+		# --- VALIDATION (using the name) ---
+		# First, check if the variable with this name is actually an array.
+		# This check is performed on the NAME, not the content.
+		if [[ ! "$(declare -p "$array_name" 2>/dev/null)" =~ ^declare\ -[aA] ]]; then
+			error "Error: stream_array expects the name of an array as its argument." >&2;
+			return 1;
+		fi
 
-			# --- PROCESSING (using the nameref) ---
-			# Now that we know it's a valid array name, create the nameref for easy access.
-			local -n arr_ref="$array_name";
+		# --- PROCESSING (using the nameref) ---
+		# Now that we know it's a valid array name, create the nameref for easy access.
+		local -n arr_ref="$array_name";
 
-			# Stream producer - this part was already correct.
-			printf "%s\n" "${arr_ref[@]}";
+		# Stream producer - this part was already correct.
+		printf "%s\n" "${arr_ref[@]}";
 	}
 
 
+		#-------------------------------------------------------------------------------
+# @array_diff
+#-------------------------------------------------------------------------------
 		# Calculates the set difference of two arrays (array1 - array2).
 		# Usage: array_diff <array1_name> <array2_name> <result_array_name>
-		array_diff() {
-				local -n arr1=$1
-				local -n arr2=$2
-				local -n result=$3
+		array_diff(){
+			local -n arr1=$1;
+			local -n arr2=$2;
+			local -n result=$3;
 
-				local -A to_remove_map
-				for item in "${arr2[@]}"; do
-						if [[ -n "$item" ]]; then
-								to_remove_map[$item]=1
-						fi
-				done
+			local -A to_remove_map
+			for item in "${arr2[@]}"; do
+				if [[ -n "$item" ]]; then
+					to_remove_map[$item]=1;
+				fi
+			done
 
-				result=()
-				for item in "${arr1[@]}"; do
-						if [[ ! -v to_remove_map[$item] ]]; then
-								result+=("$item")
-						fi
-				done
+			result=();
+			for item in "${arr1[@]}"; do
+				if [[ ! -v to_remove_map[$item] ]]; then
+					result+=("$item");
+				fi
+			done
 		}
 
 #-------------------------------------------------------------------------------
 # @filters - Stream Test Functions. Do not Delete.
 #-------------------------------------------------------------------------------
 
-	noop_filter() {
+	#-------------------------------------------------------------------------------
+# @noop_filter
+#-------------------------------------------------------------------------------
+	noop_filter(){
 		while IFS= read -r line; do
 			echo "cat: $line";
 		done
 	}
 
+	#-------------------------------------------------------------------------------
+# @noop_cat_filter
+#-------------------------------------------------------------------------------
 	noop_cat_filter(){
 		info "catting";
 		cat
@@ -730,12 +842,18 @@ is_integer(){
 #-------------------------------------------------------------------------------
 
 
+		#-------------------------------------------------------------------------------
+	# @noop
+	#-------------------------------------------------------------------------------
 	noop(){
 		[ -n "$1" ] && info "NOOP: [$1]";
 		return 0;
 	}
 
 
+	#-------------------------------------------------------------------------------
+	# @noimp
+	#-------------------------------------------------------------------------------
 	noimp(){
 		local msg="$1";
 		local ctx;
@@ -745,6 +863,9 @@ is_integer(){
 	}
 
 
+	#-------------------------------------------------------------------------------
+	# @nosup
+	#-------------------------------------------------------------------------------
 	nosup(){
 		local msg="$1";
 		local ctx;
@@ -754,6 +875,9 @@ is_integer(){
 	}
 
 
+	#-------------------------------------------------------------------------------
+	# @todo
+	#-------------------------------------------------------------------------------
 	todo(){
 		local msg="$1";
 		local ctx;
@@ -768,11 +892,9 @@ is_integer(){
 
 
 
-################################################################################
-#
-# has_base
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @has_base
+#-------------------------------------------------------------------------------
 # Description: Checks if a database with the given name exists.
 # Arguments:
 # 1: base_name (string) - The name of the base to check for.
@@ -786,11 +908,9 @@ has_base(){
 	return $?;
 }
 
-################################################################################
-#
-# has_project
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @has_project
+#-------------------------------------------------------------------------------
 # Description: Checks if a project with the given name exists in the
 #  CURRENTLY ACTIVE database.
 # Arguments:
@@ -809,11 +929,9 @@ has_project(){
 	return 0; # Exists
 }
 
-################################################################################
-#
-# has_keystore
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @has_keystore
+#-------------------------------------------------------------------------------
 # Description: Checks if a keystore with the given name exists in the
 #  CURRENTLY ACTIVE project and database.
 # Arguments:
@@ -832,11 +950,9 @@ has_keystore(){
 	return 0; # Exists
 }
 
-################################################################################
-#
-# has_key
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @has_key
+#-------------------------------------------------------------------------------
 # Description: Checks if a key with the given name exists in the
 #  CURRENTLY ACTIVE keystore, project, and database.
 # Arguments:
@@ -864,11 +980,9 @@ has_key(){
 	return 1; # Query failed for some reason
 }
 
-################################################################################
-#
-# select_db
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @select_db
+#-------------------------------------------------------------------------------
 # Description: Sets the active database for the current command execution based on
 #  TEST_MODE or the persisted base cursor.
 # Sets Global: THIS_DB, THIS_BASE_NAME
@@ -909,27 +1023,23 @@ select_db(){
 }
 
 
-################################################################################
-#
-# is_super_context (New Guard Function)
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_super_context
+#-------------------------------------------------------------------------------
 # Description: Checks if the target context is the indestructible GLOBAL.VAR.main.
 is_super_context(){
-		local pns_name="$1";
-		local kvns_name="$2";
-		if [[ "${pns_name}" == "GLOBAL" && "${kvns_name}" == "MAIN" ]]; then
-				return 0;
-		else
-				return 1;
-		fi
+	local pns_name="$1";
+	local kvns_name="$2";
+	if [[ "${pns_name}" == "GLOBAL" && "${kvns_name}" == "MAIN" ]]; then
+			return 0;
+	else
+			return 1;
+	fi
 }
 
-################################################################################
-#
-# __ensure_default_keystore_exists (New Low-Ordinal Helper)
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__ensure_default_keystore_exists
+#-------------------------------------------------------------------------------
 # Description: Self-healing function to enforce the indestructible GLOBAL.VAR.main rule.
 #  Ensures the core project and keystore exist in the current database.
 __ensure_default_keystore_exists(){
@@ -959,11 +1069,9 @@ __ensure_default_keystore_exists(){
 		return 0;
 }
 
-################################################################################
-#
-# __ensure_default_base_exists (New Low-Ordinal Helper)
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__ensure_default_base_exists
+#-------------------------------------------------------------------------------
 # Description: Self-healing function to ensure the default 'main.sqlite' base
 #  exists. If it doesn't, it creates it.
 __ensure_default_base_exists(){
@@ -981,6 +1089,9 @@ __ensure_default_base_exists(){
 		return 0;
 }
 
+#-------------------------------------------------------------------------------
+# @__require_invincible_defaults
+#-------------------------------------------------------------------------------
 __require_invincible_defaults(){
 	if __ensure_default_base_exists; then
 		__ensure_default_keystore_exists && return 0;
@@ -989,11 +1100,9 @@ __require_invincible_defaults(){
 }
 
 
-################################################################################
-#
-# is_dev
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_dev
+#-------------------------------------------------------------------------------
 # Description: Checks if DEV_MODE is enabled (0).
 # Returns: 0 (true) if DEV_MODE is 0, 1 (false) otherwise.
 is_dev(){
@@ -1001,11 +1110,9 @@ is_dev(){
 	return $?;
 }
 
-################################################################################
-#
-# is_user
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @is_user
+#-------------------------------------------------------------------------------
 # Description: Checks if user mode is enabled (DEV_MODE is not 0).
 # Returns: 0 (true) if DEV_MODE is not 0, 1 (false) otherwise.
 is_user(){
@@ -1013,11 +1120,9 @@ is_user(){
 	return $?;
 }
 
-################################################################################
-#
-# require_safe
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @require_safe
+#-------------------------------------------------------------------------------
 # Description: Checks if SAFE_MODE is enabled (0).
 # Returns: 0 (true) if SAFE_MODE is 0, 1 (false) otherwise.
 require_safe(){
@@ -1027,11 +1132,9 @@ require_safe(){
 
 
 
-################################################################################
-#
-# __sed_in_place
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__sed_in_place
+#-------------------------------------------------------------------------------
 # Description: Atomically applies a sed script to a file.
 # Arguments:
 # 1: sed_script (string) - The sed script to apply.
@@ -1069,11 +1172,9 @@ __sed_in_place(){
 	return 0;
 }
 
-################################################################################
-#
-# __validate_name
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__validate_name
+#-------------------------------------------------------------------------------
 # Description: Validates if a string is a valid name for a key or namespace.
 #  (Rule: No dots allowed).
 # Arguments:
@@ -1102,6 +1203,9 @@ __validate_name(){
 #-------------------------------------------------------------------------------
 # @rcfile
 #-------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+# @dev_rc
+#-------------------------------------------------------------------------------
 # Description: Prints the content of the bookdb RC file if in dev mode.
 # Returns: 0 if printed or file doesn't exist, 1 otherwise.
 dev_rc(){
@@ -1113,6 +1217,9 @@ dev_rc(){
 # @base_path
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+# @_get_base_path
+#-------------------------------------------------------------------------------
 # (mid) convert a name to a path, requires valid datastore dir
 _get_base_path(){
 	identify;
@@ -1140,6 +1247,9 @@ _get_base_path(){
 # @bases - Get base files and base datastores
 #-------------------------------------------------------------------------------
 
+#-------------------------------------------------------------------------------
+# @has_data_store
+#-------------------------------------------------------------------------------
 # (lib) use this whenever datastore is absolutely required
 has_data_store(){
 	if is_var_ref BOOK_DATA && is_dir_ref BOOK_DATA; then
@@ -1149,34 +1259,40 @@ has_data_store(){
 	fi
 }
 
+#-------------------------------------------------------------------------------
+# @__get_sqlite_stream
+#-------------------------------------------------------------------------------
 # (low) get file glob for sqlite raw files general functions accepts root path
 __get_sqlite_stream(){
-    identify
-    local root="${1}";
+		identify
+		local root="${1}";
 
-    # A quick check to ensure we have a valid directory to work with.
-    if [[ ! -d "$root" ]]; then
-        error "Datastore path '$root' is not a valid directory."
-        return 1;
-    fi
+		# A quick check to ensure we have a valid directory to work with.
+		if [[ ! -d "$root" ]]; then
+				error "Datastore path '$root' is not a valid directory."
+				return 1;
+		fi
 
-    # Use 'nullglob' to prevent errors if no files match.
-    # The glob will expand to nothing instead of the literal "*.sqlite".
-    shopt -s nullglob;
+		# Use 'nullglob' to prevent errors if no files match.
+		# The glob will expand to nothing instead of the literal "*.sqlite".
+		shopt -s nullglob;
 
-    # This is the key: by including "$root" in the glob,
-    # the array is populated with absolute paths.
-    local -a files=("${root}"/*.sqlite);
+		# This is the key: by including "$root" in the glob,
+		# the array is populated with absolute paths.
+		local -a files=("${root}"/*.sqlite);
 
-    # It's good practice to unset the option immediately after use.
-    shopt -u nullglob;
+		# It's good practice to unset the option immediately after use.
+		shopt -u nullglob;
 
-    # If the array has elements, print them.
-    if (( ${#files[@]} > 0 )); then
-        printf "%s\n" "${files[@]}";
-    fi
+		# If the array has elements, print them.
+		if (( ${#files[@]} > 0 )); then
+				printf "%s\n" "${files[@]}";
+		fi
 }
 
+#-------------------------------------------------------------------------------
+# @__get_base_name
+#-------------------------------------------------------------------------------
 # (low) takes a filepath to an sqlite file and returns its base name
 __get_base_name(){
 	#identify;
@@ -1186,6 +1302,9 @@ __get_base_name(){
 	echo "$file";
 }
 
+#-------------------------------------------------------------------------------
+# @_list_filterd_bases
+#-------------------------------------------------------------------------------
 # (mid) list bases is filtering sqlite files to existing base names
 _list_filterd_bases(){
 	identify;
@@ -1205,6 +1324,9 @@ _list_filterd_bases(){
 
 
 
+#-------------------------------------------------------------------------------
+# @dev_dump_bases
+#-------------------------------------------------------------------------------
 # (high) prints bases - direct testable
 dev_dump_bases(){
 	identify;
@@ -1218,178 +1340,188 @@ dev_dump_bases(){
 	echo "bases:$len:${bases[*]}"; #value can be used for testing
 }
 
+#-------------------------------------------------------------------------------
+# @dev_show_sqlite
+#-------------------------------------------------------------------------------
 dev_show_sqlite(){
 	identify;
 	echo "$BOOK_DATA";
 	__get_sqlite_stream "${BOOK_DATA}";
 }
 
-__ask() {
+#-------------------------------------------------------------------------------
+# @__ask
+#-------------------------------------------------------------------------------
+__ask(){
 	local msg="$1" default="$2" answer prompt
 	if [[ "${opt_yes:-0}" -eq 1 ]]; then
-			[[ -z "$default" ]] && fatal "Missing default for auto-accept! ($msg)"
-			echo "$default"
-			return 0
+			[[ -z "$default" ]] && fatal "Missing default for auto-accept! ($msg)";
+			echo "$default";
+			return 0;
 	fi
-	builtin printf -v prompt "${blue}%b${xx}${blue}[type] --> ${orange} " "$msg"
-	read -p "$prompt" answer
+	builtin printf -v prompt "${blue}%b${xx}${blue}[type] --> ${orange} " "$msg";
+	read -p "$prompt" answer;
 	case "$answer" in
-		c|q|n|quit|cancel) error "Operation cancelled."; return 1 ;;
+		(c|q|n|quit|cancel) error "Operation cancelled."; return 1; ;;
 	esac
-	echo "${answer:-$default}"
+	echo "${answer:-$default}";
 }
 
-is_required_base(){
-	identify; 
-	local this="$1";
-	if is_defined "$BOOK_DEFAULT_BASE" && [ "$BOOK_DEFAULT_BASE" == "$this" ]; then
-		fatal "System default base cannot be deleted. ($BOOK_DEFAULT_BASE)";
-	else
-		return 0;
-	fi
-}
+#-------------------------------------------------------------------------------
+# @is_required_base
+#-------------------------------------------------------------------------------
+	is_required_base(){
+		identify; 
+		local this="$1";
+		if is_defined "$BOOK_DEFAULT_BASE" && [ "$BOOK_DEFAULT_BASE" == "$this" ]; then
+			fatal "System default base cannot be deleted. ($BOOK_DEFAULT_BASE)";
+		else
+			return 0;
+		fi
+	}
 
-dev_rem_base() {
-    identify
-    local base_name="$1" answer bases default that_bar this_bar prompt_message ret
-    local -a delete_list=()
-    local -a ignore_list=()
-    local -a deletable_bases=()
-    local -a protected_bases=("home" "config" "test")
-    local protected_pattern
+	dev_rem_base(){
+			identify
+			local base_name="$1" answer bases default that_bar this_bar prompt_message ret;
+			local -a delete_list=();
+			local -a ignore_list=();
+			local -a deletable_bases=();
+			local -a protected_bases=("home" "config" "test");
+			local protected_pattern;
 
-    # --- 1. SETUP: Prepare our lists of bases ---
-    mapfile -t bases < <(_list_filterd_bases)
+			# --- 1. SETUP: Prepare our lists of bases ---
+			mapfile -t bases < <(_list_filterd_bases);
 
-    protected_pattern=$(printf "^(%s)$" "$(IFS="|"; echo "${protected_bases[*]}")")
-    mapfile -t deletable_bases < <(printf "%s\n" "${bases[@]}" | grep -v -E "$protected_pattern")
+			protected_pattern=$(printf "^(%s)$" "$(IFS="|"; echo "${protected_bases[*]}")");
+			mapfile -t deletable_bases < <(printf "%s\n" "${bases[@]}" | grep -v -E "$protected_pattern");
 
-    if ! is_var_ref base_name; then
-        # --- 2. PRE-PROMPT: Display info to the user ---
-        line "Deletion Pending..."
+			if ! is_var_ref base_name; then
+					# --- 2. PRE-PROMPT: Display info to the user ---
+					line "Deletion Pending...";
 
-        if (( ${#deletable_bases[@]} > 0 )); then
-            default="${deletable_bases[0]}"
-            # (Optional: your is_required_base check can go here)
-            warn "Default base to delete is: $default"
-        else
-            error "${invert}SORRY!${xx}${red} there are no deletable bases available."
-            return 1
-        fi
-
-
-				this_bar=$(bar 60 "-" | color_filter "grey3" );
-				that_bar=$(bar 30 "-" | color_filter "grey3" );
-				echo -e "\n$that_bar" >&2;
-				echo -e "${invert}Available Bases [${#deletable_bases[@]}]:" | color_filter "purple2" >&2;
-				echo -e "$that_bar${grey}> $BOOK_DEFAULT_BASE (system)${xx}" >&2;
-				stream_array deletable_bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter  >&2;
-				echo -e "$that_bar\n" >&2;
-
-				prompt_message=$(cat <<-EOF
-					${red}${invert}DEV: REMOVE BASES(s)${xx}
-					${red}Cancel and use 'backup' to save data first.${xx}
-
-					${purple}FILTER SYNTAX:${xx}
-					${that_bar}
-						Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
-						Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
-
-					${purple}ACTIONS:${xx}
-					${that_bar}${grey}
-						- Cancel:   Type 'q' or 'cancel' to exit.
-						- Continue: Hit <Enter> to accept the default => ${grey3}[$default]${xx}${grey}
-						- Select:   Type filter(s) separated by spaces...\n\n\t
-					${purple}Which [base] shall we nuke? ${xx}
-				EOF
-				);
+					if (( ${#deletable_bases[@]} > 0 )); then
+							default="${deletable_bases[0]}";
+							# (Optional: your is_required_base check can go here)
+							warn "Default base to delete is: $default";
+					else
+							error "${invert}SORRY!${xx}${red} there are no deletable bases available.";
+							return 1;
+					fi
 
 
-        if answer=$(__ask "$prompt_message" "$default"); then
-            read -ra patterns_array <<< "$answer"
-            itrace "Reviewing changes... (got=${patterns_array[*]})" >&2
+					this_bar=$(bar 60 "-" | color_filter "grey3" );
+					that_bar=$(bar 30 "-" | color_filter "grey3" );
+					echo -e "\n$that_bar" >&2;
+					echo -e "${invert}Available Bases [${#deletable_bases[@]}]:" | color_filter "purple2" >&2;
+					echo -e "$that_bar${grey}> $BOOK_DEFAULT_BASE (system)${xx}" >&2;
+					stream_array deletable_bases |  pr -4 -t -s'|' | column -t -s'|' | list_filter  >&2;
+					echo -e "$that_bar\n" >&2;
 
-            # --- 4. PRE-FLIGHT SAFETY CHECKS (The New, Smart Logic) ---
-            local -a user_selection=()
-            for pat in "${patterns_array[@]}"; do
-                user_selection+=("${pat#[#!%#]}") # Get clean names of what the user typed
-            done
-            
-            # Find the intersection between user's request and protected list efficiently
-            local -a attempted_protected=()
-            mapfile -t attempted_protected < <(grep -F -x -f <(printf "%s\n" "${protected_bases[@]}") <(printf "%s\n" "${user_selection[@]}"))
-            
-            # If they tried to select any protected bases, warn them.
-            if (( ${#attempted_protected[@]} > 0 )); then
-                for base in "${attempted_protected[@]}"; do
-                    warn "Attempt to select protected base '${base}' was ignored."
-                done
-                
-                # If their ONLY selections were protected items, abort gracefully.
-                if (( ${#attempted_protected[@]} == ${#user_selection[@]} )); then
-                    error "No valid, non-protected items were selected. Aborting."
-                    return 1
-                fi
-            fi
+					prompt_message=$(cat <<-EOF
+						${red}${invert}DEV: REMOVE BASES(s)${xx}
+						${red}Cancel and use 'backup' to save data first.${xx}
 
-            # --- 5. EXECUTE THE FILTER ---
-            # Now we create the final delete list. It's guaranteed to be safe because
-            # we are filtering from 'deletable_bases'.
-            mapfile -t delete_list < <(stream_array deletable_bases | super_substring_filter "${patterns_array[@]}")
+						${purple}FILTER SYNTAX:${xx}
+						${that_bar}
+							Include:  ${green}%fuzzy${xx} or ${green}#exact${xx}
+							Exclude:  ${red}!fuzzy${xx} or ${red}!#exact${xx}
 
-            # --- 6. POST-FILTER CHECKS & DISPLAY ---
-            if (( ${#delete_list[@]} > 0 )); then
-                # Calculate what was ignored FROM THE DELETABLE SET
-                array_diff deletable_bases delete_list ignore_list
-                
-                # Check if all possible deletable items were selected
-                if (( ${#delete_list[@]} == ${#deletable_bases[@]} )); then
-                    info "All non-protected bases have been selected for deletion."
-                fi
+						${purple}ACTIONS:${xx}
+						${that_bar}${grey}
+							- Cancel:   Type 'q' or 'cancel' to exit.
+							- Continue: Hit <Enter> to accept the default => ${grey3}[$default]${xx}${grey}
+							- Select:   Type filter(s) separated by spaces...\n\n\t
+						${purple}Which [base] shall we nuke? ${xx}
+					EOF
+					);
 
-                stream_array delete_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2
-                line "Bases for Deletion"
-                
-                if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${italic}unrecoverable${xx}\nContinue [y/n]?" "critical"; then
-                    ptrace "These items will remain after deletion (from the deletable set):"
-                    stream_array ignore_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2
-                    wtrace "One Moment..."
-                    sleep 1
-                    printf "%s\n" "${delete_list[@]}" | _remove_bases
-                fi
-            else
-                error "Selection resulted in zero work! Skipping."
-                return 1
-            fi
-        fi
-    else
-        debug "rem (got=$basename)"
-    fi
-}
 
-list_filter(){
-	local bullet="${1:->}";
-	while IFS= read -r line; do
-		printf "${bullet} %b\n" "$line";
-	done
-}
+					if answer=$(__ask "$prompt_message" "$default"); then
+							read -ra patterns_array <<< "$answer";
+							itrace "Reviewing changes... (got=${patterns_array[*]})" >&2;
 
-color_filter_each(){
-	local color="${1:-grey}";
-	color=${!color};
-	while IFS= read -r line; do
-		printf "%b\n" "${color}$line${xx}";
-	done
-}
+							# --- 4. PRE-FLIGHT SAFETY CHECKS (The New, Smart Logic) ---
+							local -a user_selection=()
+							for pat in "${patterns_array[@]}"; do
+									user_selection+=("${pat#[#!%#]}"); # Get clean names of what the user typed
+							done
+							
+							# Find the intersection between user's request and protected list efficiently
+							local -a attempted_protected=();
+							mapfile -t attempted_protected < <(grep -F -x -f <(printf "%s\n" "${protected_bases[@]}") <(printf "%s\n" "${user_selection[@]}"));
+							
+							# If they tried to select any protected bases, warn them.
+							if (( ${#attempted_protected[@]} > 0 )); then
+									for base in "${attempted_protected[@]}"; do
+										warn "Attempt to select protected base '${base}' was ignored.";
+									done
+									
+									# If their ONLY selections were protected items, abort gracefully.
+									if (( ${#attempted_protected[@]} == ${#user_selection[@]} )); then
+										error "No valid, non-protected items were selected. Aborting.";
+										return 1
+									fi
+							fi
 
-color_filter() {
-	local color_name="${1:-grey}";
-	local color_code=${!color_name};
-	local reset_code=${xx};
-	trap 'printf "%s" "${reset_code}"' EXIT;
-	printf "%s" "${color_code}";
-	cat
-}
+							# --- 5. EXECUTE THE FILTER ---
+							# Now we create the final delete list. It's guaranteed to be safe because
+							# we are filtering from 'deletable_bases'.
+							mapfile -t delete_list < <(stream_array deletable_bases | super_substring_filter "${patterns_array[@]}")
+
+							# --- 6. POST-FILTER CHECKS & DISPLAY ---
+							if (( ${#delete_list[@]} > 0 )); then
+									# Calculate what was ignored FROM THE DELETABLE SET
+									array_diff deletable_bases delete_list ignore_list
+									
+									# Check if all possible deletable items were selected
+									if (( ${#delete_list[@]} == ${#deletable_bases[@]} )); then
+											info "All non-protected bases have been selected for deletion."
+									fi
+
+									stream_array delete_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "red" >&2
+									line "Bases for Deletion"
+									
+									if __confirm_action "Confirm. The above listed bases will be deleted.\nThis operation is ${italic}unrecoverable${xx}\nContinue [y/n]?" "critical"; then
+											ptrace "These items will remain after deletion (from the deletable set):"
+											stream_array ignore_list | pr -4 -t -s'|' | column -t -s '|' | color_filter "green" >&2
+											wtrace "One Moment..."
+											sleep 1
+											printf "%s\n" "${delete_list[@]}" | _remove_bases
+									fi
+							else
+									error "Selection resulted in zero work! Skipping."
+									return 1
+							fi
+					fi
+			else
+					debug "rem (got=$basename)"
+			fi
+	}
+
+	list_filter(){
+		local bullet="${1:->}";
+		while IFS= read -r line; do
+			printf "${bullet} %b\n" "$line";
+		done
+	}
+
+	color_filter_each(){
+		local color="${1:-grey}";
+		color=${!color};
+		while IFS= read -r line; do
+			printf "%b\n" "${color}$line${xx}";
+		done
+	}
+
+	color_filter(){
+		local color_name="${1:-grey}";
+		local color_code=${!color_name};
+		local reset_code=${xx};
+		trap 'printf "%s" "${reset_code}"' EXIT;
+		printf "%s" "${color_code}";
+		cat
+	}
+
 # Filters a stream of text, supporting multiple inclusion and exclusion patterns.
 #
 # Usage:
@@ -1413,60 +1545,60 @@ color_filter() {
 #    It must match ANY inclusion (# or %) to be finally ACCEPTED.
 #
 
-super_substring_filter() {
-    if [[ $# -eq 0 ]]; then cat; return 0; fi
+	super_substring_filter(){
+			if [[ $# -eq 0 ]]; then cat; return 0; fi
 
-    local -a includes=() excludes=() exact_include=() exact_exclude=()
-    local ALL_MODE=1 found_match=false; # <--- 1. DECLARE FLAG
+			local -a includes=() excludes=() exact_include=() exact_exclude=()
+			local ALL_MODE=1 found_match=false; # <--- 1. DECLARE FLAG
 
-    for arg in "$@"; do
-        case "$arg" in
+			for arg in "$@"; do
+				case "$arg" in
 					('!#'*) exact_exclude+=("${arg#!#}"); ;;
 					('!'*)  excludes+=("${arg#!}");       ;;
 					('#'*)  exact_include+=("${arg#\#}"); ;;
 					('%'*)  includes+=("${arg#\%}");      ;;
 					('*'*)  ALL_MODE=0;           ;; #include only
 					(*) includes+=("${arg#\%}");  ;;
-        esac
-    done
+				esac
+			done
 
-    while IFS= read -r line; do
+			while IFS= read -r line; do
 
-			if [ "$ALL_MODE" -eq 1 ]; then
+				if [ "$ALL_MODE" -eq 1 ]; then
 					local is_excluded=false
 					for p in "${exact_exclude[@]}"; do [[ "$line" == "$p" ]] && { is_excluded=true; break; }; done
 					if ! "$is_excluded"; then
-							for p in "${excludes[@]}"; do [[ "$line" == *"$p"* ]] && { is_excluded=true; break; }; done
+						for p in "${excludes[@]}"; do [[ "$line" == *"$p"* ]] && { is_excluded=true; break; }; done
 					fi
 					if "$is_excluded"; then continue; fi
 
 					local is_included=false
 					if (( ${#exact_include[@]} == 0 && ${#includes[@]} == 0 )); then
-							is_included=true
+						is_included=true;
 					else
-							for p in "${exact_include[@]}"; do [[ "$line" == "$p" ]] && { is_included=true; break; }; done
-							if ! "$is_included"; then
-									for p in "${includes[@]}"; do [[ "$line" == *"$p"* ]] && { is_included=true; break; }; done
-							fi
+						for p in "${exact_include[@]}"; do [[ "$line" == "$p" ]] && { is_included=true; break; }; done
+						if ! "$is_included"; then
+							for p in "${includes[@]}"; do [[ "$line" == *"$p"* ]] && { is_included=true; break; }; done
+						fi
 					fi
-			else
-				#include everyting
-				is_included=true;
+				else
+					#include everyting
+					is_included=true;
+				fi
+
+
+				if "$is_included"; then
+					found_match=true # <--- 2. SET FLAG ON SUCCESS
+					echo "$line"
+				fi
+			done
+
+			# --- 3. FINAL CHECK ---
+			if ! "$found_match"; then
+				# error "Filter produced no matches." >&2
+				return 1
 			fi
-
-
-			if "$is_included"; then
-				found_match=true # <--- 2. SET FLAG ON SUCCESS
-				echo "$line"
-			fi
-    done
-
-    # --- 3. FINAL CHECK ---
-    if ! "$found_match"; then
-			# error "Filter produced no matches." >&2
-			return 1
-    fi
-}
+	}
 
 #-------------------------------------------------------------------------------
 # @fruit - start a new basefile
@@ -1563,528 +1695,502 @@ _create_base(){
 # @remove_base - start a new basefile
 #-------------------------------------------------------------------------------
 # Description: Deletes a database file. Contains no user-level safety.
-_remove_base(){
-	local base_name="$1";
-	local base_path;
-	base_path=$(_get_base_path "$base_name");
+	_remove_base(){
+		local base_name="$1";
+		local base_path;
+		base_path=$(_get_base_path "$base_name");
 
-	# System-level guard: check if file exists
-	if [[ ! -f "${base_path}" ]]; then
-		error "Database '${base_name}' does not exist.";
-		return 1;
-	fi
+		# System-level guard: check if file exists
+		if [[ ! -f "${base_path}" ]]; then
+			error "Database '${base_name}' does not exist.";
+			return 1;
+		fi
 
-	rm -f "${base_path}" "${base_path}-wal" "${base_path}-shm" || { error "Failed to remove database files for: ${base_name}"; return 1; };
-	okay "Database '${base_name}' removed.";
-	return 0;
-}
+		rm -f "${base_path}" "${base_path}-wal" "${base_path}-shm" || { error "Failed to remove database files for: ${base_name}"; return 1; };
+		okay "Database '${base_name}' removed.";
+		return 0;
+	}
 
 
 # (low-level worker) Removes a SINGLE base and its associated files.
 # This function is not meant to be called directly by the user.
-__remove_one_base(){
-    local base_name="$1"
-    
-    # A guard against empty input
-    if [[ -z "$base_name" ]]; then return 1; fi
+	__remove_one_base(){
+			local base_name="$1"
+			
+			# A guard against empty input
+			if [[ -z "$base_name" ]]; then return 1; fi
 
-    local base_path
-    base_path=$(_get_base_path "$base_name")
+			local base_path
+			base_path=$(_get_base_path "$base_name")
 
-    # System-level guard: check if file exists
-    if [[ ! -f "${base_path}" ]]; then
-        error "Database '${base_name}' does not exist. Skipping."
-        return 1
-    fi
+			# System-level guard: check if file exists
+			if [[ ! -f "${base_path}" ]]; then
+					error "Database '${base_name}' does not exist. Skipping."
+					return 1
+			fi
 
-    # Attempt to remove all associated files. The || makes it fail-safe.
-    # The 'true' at the end ensures the command doesn't exit the script on failure if set -e is on.
-    rm -f "${base_path}" "${base_path}-wal" "${base_path}-shm" || { error "Failed to remove database files for: ${base_name}"; return 1; }
-    
-    okay "Database '${base_name}' removed."
-    return 0
-}
+			# Attempt to remove all associated files. The || makes it fail-safe.
+			# The 'true' at the end ensures the command doesn't exit the script on failure if set -e is on.
+			rm -f "${base_path}" "${base_path}-wal" "${base_path}-shm" || { error "Failed to remove database files for: ${base_name}"; return 1; }
+			
+			okay "Database '${base_name}' removed."
+			return 0
+	}
 
 # (high-level) Removes multiple bases provided either as arguments or via a stream.
 # Usage 1 (arguments):  _remove_bases "base1" "base2"
 # Usage 2 (stream):     cat my_list.txt | _remove_bases
-_remove_bases() {
-    local -a items_to_process=()
+	_remove_bases(){
+			local -a items_to_process=()
 
-    # --- 1. GATHER INPUT ---
-    # Smartly decide where to get the list from.
-    if (( $# > 0 )); then
-        # Mode 1: from function arguments
-        items_to_process=("$@")
-    elif [[ ! -t 0 ]]; then
-        # Mode 2: from a pipe (stdin is not a terminal)
-        mapfile -t items_to_process
-    else
-        error "Usage: _remove_bases <base1> <base2>... OR <stream> | _remove_bases"
-        return 1
-    fi
-
-    # --- 2. PROCESS THE LIST ---
-    local success_count=0
-    local failure_count=0
-    local total_count=${#items_to_process[@]}
-    info "Attempting to remove ${total_count} base(s)..."
-
-    for base in "${items_to_process[@]}"; do
-        # Call our low-level worker for each item
-        if __remove_one_base "$base"; then
-            ((success_count++))
-        else
-            ((failure_count++))
-        fi
-    done
-
-    # --- 3. REPORT SUMMARY ---
-    line "Removal Complete"
-    info "Success: ${success_count}, Failed: ${failure_count}"
-
-    # Return a failure code if any of the items failed
-    if (( failure_count > 0 )); then
-        return 1
-    fi
-    return 0
-}
-
-################################################################################
-#
-# __db_query
-#
-################################################################################
-
-__db_query(){
-	local ret=1;
-	local query="$1";
-	shift;
-
-	if ! command -v sqlite3 >/dev/null 2>&1; then
-		error "sqlite3 command not found.";
-		return 1;
-	fi
-
-	if [[ ! -f "${THIS_DB}" ]]; then
-		error "Database file does not exist: ${THIS_DB}.";
-		return 1;
-	fi
-
-	# Ensure the lock file exists for flock to use.
-	touch "${BOOK_LOCK}" || { error "Could not create or touch lock file: ${BOOK_LOCK}"; return 1; };
-
-	# Wrap the entire sqlite3 call in a subshell managed by flock.
-	(
-		flock -x 200 # Acquire an exclusive lock on file descriptor 200
-
-		local output;
-		local sqlite_stderr;
-
-		# Execute sqlite3 only ONCE.
-		# Capture stdout to `output` and stderr to `sqlite_stderr`.
-		{
-				output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2> >(sqlite_stderr=$(cat); cat >&2));
-				ret=$?;
-		}
-
-		if [[ ${ret} -ne 0 ]]; then
-			# On failure, print our own error and the captured stderr from sqlite3.
-			# Use direct printf here as we are in a subshell.
-			printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;
-			if [[ -n "$sqlite_stderr" ]]; then
-					printf "%b\n" "${red}SQLite Error: ${sqlite_stderr}${xx}" >&2;
+			# --- 1. GATHER INPUT ---
+			# Smartly decide where to get the list from.
+			if (( $# > 0 )); then
+					# Mode 1: from function arguments
+					items_to_process=("$@")
+			elif [[ ! -t 0 ]]; then
+					# Mode 2: from a pipe (stdin is not a terminal)
+					mapfile -t items_to_process
+			else
+					error "Usage: _remove_bases <base1> <base2>... OR <stream> | _remove_bases"
+					return 1
 			fi
-		else
-			# On success, print only the captured stdout.
-			printf "%s" "${output%$'\n'}";
+
+			# --- 2. PROCESS THE LIST ---
+			local success_count=0
+			local failure_count=0
+			local total_count=${#items_to_process[@]}
+			info "Attempting to remove ${total_count} base(s)..."
+
+			for base in "${items_to_process[@]}"; do
+					# Call our low-level worker for each item
+					if __remove_one_base "$base"; then
+							((success_count++))
+					else
+							((failure_count++))
+					fi
+			done
+
+			# --- 3. REPORT SUMMARY ---
+			line "Removal Complete"
+			info "Success: ${success_count}, Failed: ${failure_count}"
+
+			# Return a failure code if any of the items failed
+			if (( failure_count > 0 )); then
+					return 1
+			fi
+			return 0
+	}
+
+#-------------------------------------------------------------------------------
+# @__db_query
+#-------------------------------------------------------------------------------
+	__db_query(){
+		local ret=1;
+		local query="$1";
+		shift;
+
+		if ! command -v sqlite3 >/dev/null 2>&1; then
+			error "sqlite3 command not found.";
+			return 1;
 		fi
 
-		exit ${ret};
-	) 200>"${BOOK_LOCK}";
+		if [[ ! -f "${THIS_DB}" ]]; then
+			error "Database file does not exist: ${THIS_DB}.";
+			return 1;
+		fi
 
-	return $?;
-}
+		# Ensure the lock file exists for flock to use.
+		touch "${BOOK_LOCK}" || { error "Could not create or touch lock file: ${BOOK_LOCK}"; return 1; };
 
-################################################################################
-#
-# __persist_cursor
-#
-################################################################################
+		# Wrap the entire sqlite3 call in a subshell managed by flock.
+		(
+			flock -x 200 # Acquire an exclusive lock on file descriptor 200
+
+			local output;
+			local sqlite_stderr;
+
+			# Execute sqlite3 only ONCE.
+			# Capture stdout to `output` and stderr to `sqlite_stderr`.
+			{
+					output=$(sqlite3 "$@" "${THIS_DB}" "${query}" 2> >(sqlite_stderr=$(cat); cat >&2));
+					ret=$?;
+			}
+
+			if [[ ${ret} -ne 0 ]]; then
+				# On failure, print our own error and the captured stderr from sqlite3.
+				# Use direct printf here as we are in a subshell.
+				printf "%b\n" "${red}Database query failed for: ${query}${xx}" >&2;
+				if [[ -n "$sqlite_stderr" ]]; then
+						printf "%b\n" "${red}SQLite Error: ${sqlite_stderr}${xx}" >&2;
+				fi
+			else
+				# On success, print only the captured stdout.
+				printf "%s" "${output%$\n}";
+			fi
+
+			exit ${ret};
+		) 200>"${BOOK_LOCK}";
+
+		return $?;
+	}
+
+#-------------------------------------------------------------------------------
+# @__persist_cursor
+#-------------------------------------------------------------------------------
 # Description: Writes the current Project and Key-Value Namespace names to the
 #  cursor file for persistence across sessions.
-__persist_cursor(){
-	local pns_name="$1";
-	local kvns_name="$2";
-	if [[ -z "$pns_name" || -z "$kvns_name" ]]; then
-		error "Cannot persist invalid cursor (PNS: '${pns_name}', KVNS: '${kvns_name}').";
-		return 1;
-	fi
-	printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CONTEXT_CURSOR}" || fatal "Failed to write context cursor file: ${BOOK_CONTEXT_CURSOR}";
-	return 0;
-}
+	__persist_cursor(){
+		local pns_name="$1";
+		local kvns_name="$2";
+		if [[ -z "$pns_name" || -z "$kvns_name" ]]; then
+			error "Cannot persist invalid cursor (PNS: '${pns_name}', KVNS: '${kvns_name}').";
+			return 1;
+		fi
+		printf "%s\n%s\n" "${pns_name}" "${kvns_name}" > "${BOOK_CONTEXT_CURSOR}" || fatal "Failed to write context cursor file: ${BOOK_CONTEXT_CURSOR}";
+		return 0;
+	}
 
-################################################################################
-#
-# __backup_db
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__backup_db
+#-------------------------------------------------------------------------------
 # Description: Performs a daily automatic backup of the database if SAFE_MODE
 #  is enabled and no backup has been performed yet today.
-__backup_db(){
-	if [[ "${SAFE_MODE}" -ne 0 || "${BACKED_UP}" -eq 0 ]]; then
+	__backup_db(){
+		if [[ "${SAFE_MODE}" -ne 0 || "${BACKED_UP}" -eq 0 ]]; then
+			return 0;
+		fi
+		if [[ ! -f "${THIS_DB}" ]]; then
+			trace "SAFE_MODE: Database does not exist, skipping backup.";
+			return 0;
+		fi
+
+		local today; today=$(date +%Y-%m-%d);
+		local backup_dir="${BOOK_DATA}/backups";
+		local daily_backup_file="${backup_dir}/bookdb-auto-backup-${today}.tar.gz";
+
+		BACKED_UP=0;
+
+		if [[ -f "${daily_backup_file}" ]]; then
+			trace "SAFE_MODE: Daily auto-backup for ${today} already exists.";
+			return 0;
+		fi
+
+		mkdir -p "${backup_dir}" || error "Could not create backup directory: ${backup_dir}.";
+		trace "SAFE_MODE: Performing daily auto-backup to ${daily_backup_file}";
+		# We only back up the database file for the automatic safety backup
+		tar -czf "${daily_backup_file}" -C "$(dirname "${THIS_DB}")" "$(basename "${THIS_DB}")";
+
+		if [[ $? -ne 0 ]]; then
+			error "Auto-backup failed!";
+			return 1;
+		fi
 		return 0;
-	fi
-	if [[ ! -f "${THIS_DB}" ]]; then
-		trace "SAFE_MODE: Database does not exist, skipping backup.";
-		return 0;
-	fi
+	}
 
-	local today; today=$(date +%Y-%m-%d);
-	local backup_dir="${BOOK_DATA}/backups";
-	local daily_backup_file="${backup_dir}/bookdb-auto-backup-${today}.tar.gz";
-
-	BACKED_UP=0;
-
-	if [[ -f "${daily_backup_file}" ]]; then
-		trace "SAFE_MODE: Daily auto-backup for ${today} already exists.";
-		return 0;
-	fi
-
-	mkdir -p "${backup_dir}" || error "Could not create backup directory: ${backup_dir}.";
-	trace "SAFE_MODE: Performing daily auto-backup to ${daily_backup_file}";
-	# We only back up the database file for the automatic safety backup
-	tar -czf "${daily_backup_file}" -C "$(dirname "${THIS_DB}")" "$(basename "${THIS_DB}")";
-
-	if [[ $? -ne 0 ]]; then
-		error "Auto-backup failed!";
-		return 1;
-	fi
-	return 0;
-}
-
-################################################################################
-#
-# __confirm_action
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__confirm_action
+#-------------------------------------------------------------------------------
 # Description: Prompts the user for confirmation before proceeding with an action.
-__confirm_action(){
-	local prompt_msg="$1" critical="$2";
+	__confirm_action(){
+		local prompt_msg="$1" critical="$2";
 
-	if [ -z "$critical" ]; then 
-		if is_dev; then
-			dev "DEV_MODE: Auto-confirming action.";
-			return 0;
+		if [ -z "$critical" ]; then 
+			if is_dev; then
+				dev "DEV_MODE: Auto-confirming action.";
+				return 0;
+			fi
+			if [[ -n "$opt_yes" ]]; then
+				return 0;
+			fi
+		else
+			imp "Dev critical bumper activated, cannot bypass confirmation!";
 		fi
-		if [[ -n "$opt_yes" ]]; then
+
+		local confirm;
+		local str=$(echo -e "${red2}${prompt_msg}${xx} : ");
+		printf "%b " "${str}" >&2;
+		read -r confirm;
+		if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
 			return 0;
+		else
+			[ -n "$critical" ] && { fatal "Critical Execution Cancelled.";  } 
+			return 1;
 		fi
-	else
-		imp "Dev critical bumper activated, cannot bypass confirmation!";
-	fi
-
-	local confirm;
-	local str=$(echo -e "${red2}${prompt_msg}${xx} : ");
-	printf "%b " "${str}" >&2;
-	read -r confirm;
-	if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
-		return 0;
-	else
-		[ -n "$critical" ] && { fatal "Critical Execution Cancelled.";  } 
-		return 1;
-	fi
-}
+	}
 
 
 
-################################################################################
-#
-# __resolve_context (Corrected)
-#
-################################################################################
+#-------------------------------------------------------------------------------
+# @__resolve_context
+#-------------------------------------------------------------------------------
 # Description: The central nervous system for context resolution.
 # todo: can this use sub functions at all?
-__resolve_context(){
-	trace "Attempting to resolve context...";
-	local T_pns_name=; local T_kvns_name=;
-	local persist_base=0; local persist_context=0;
-	local context_from_cmd=0;
-	local temp_opt_context_chain="${opt_context_chain}"; # Use a temporary variable for parsing
+	__resolve_context(){
+		trace "Attempting to resolve context...";
+		local T_pns_name=; local T_kvns_name=;
+		local persist_base=0; local persist_context=0;
+		local context_from_cmd=0;
+		local temp_opt_context_chain="${opt_context_chain}"; # Use a temporary variable for parsing
 
-	# Handle base override from opt_context_chain
-	if [[ -n "$temp_opt_context_chain" ]]; then
-			if [[ "$temp_opt_context_chain" == *@* ]]; then
-					local base_part="${temp_opt_context_chain%%@*}";
-					temp_opt_context_chain="${temp_opt_context_chain#*@}";
-					if ! _list_filterd_bases | grep -q "^${base_part}$"; then
-							error "Base '${base_part}' specified in context chain not found.";
-							return 1;
-					fi
-					THIS_BASE_NAME="$base_part";
-					THIS_DB=$(_get_base_path "${THIS_BASE_NAME}");
-					trace "Context chain base override: THIS_BASE_NAME set to ${THIS_BASE_NAME}";
-					persist_base=1; # Mark for persistence if @ was used
-			elif [[ "$temp_opt_context_chain" == *%* ]]; then
-					local base_part="${temp_opt_context_chain%%\%*}";
-					temp_opt_context_chain="${temp_opt_context_chain#*\%}";
-					if ! _list_filterd_bases | grep -q "^${base_part}$"; then
-							error "Base '${base_part}' specified in context chain not found.";
-							return 1;
-					fi
-					THIS_BASE_NAME="$base_part";
-					THIS_DB=$(_get_base_path "${THIS_BASE_NAME}");
-					trace "Context chain base override (non-persistent): THIS_BASE_NAME set to ${THIS_BASE_NAME}";
-			fi
-	fi
-
-	# --- Part 1: Prioritize command-line overrides ---
-	if [[ -n "$opt_projdb" ]]; then
-			context_from_cmd=1; persist_context=1;
-			T_pns_name="${opt_projdb}"; T_kvns_name="MAIN";
-	elif [[ -n "$temp_opt_context_chain" ]]; then # Use temp_opt_context_chain here
-			context_from_cmd=1;
-			if [[ "${temp_opt_context_chain}" == *".VAR."* ]]; then
-					T_pns_name="${temp_opt_context_chain%%.VAR.*}";
-					T_kvns_name="${temp_opt_context_chain#*.VAR.}";
-			else
-					T_pns_name="${temp_opt_context_chain%%.*}"; T_kvns_name="MAIN";
-			fi
-			if [[ "${opt_chain_mode}" == "@" ]]; then persist_context=1; fi
-	fi
-
-	# --- Part 2: Fallback to Cursor Files ---
-	if [[ $context_from_cmd -eq 0 ]]; then
-			if [[ -f "${BOOK_CONTEXT_CURSOR}" ]]; then
-					T_pns_name=$(sed -n '1p' "${BOOK_CONTEXT_CURSOR}");
-					T_kvns_name=$(sed -n '2p' "${BOOK_CONTEXT_CURSOR}");
-			fi
-	fi
-
-	# --- Part 3: Final Defaulting and Validation ---
-	if __is_empty "${T_pns_name}"; then T_pns_name="GLOBAL"; fi
-	if __is_empty "${T_kvns_name}"; then T_kvns_name="MAIN"; fi
-
-	local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${T_pns_name}';");
-	if __is_empty "$pns_id"; then error "Project '${T_pns_name}' not found in base '${THIS_BASE_NAME}'."; return 1; fi
-	local kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${T_kvns_name}' AND pns_id_fk = ${pns_id};");
-	if __is_empty "$kvns_id"; then error "Keystore '${T_kvns_name}' not found in project '${T_pns_name}'."; return 1; fi
-
-	# --- Part 4: Commit to Globals and Persist Cursors ---
-	BOOK_PNS_ID="$pns_id"; BOOK_PNS_NAME="$T_pns_name";
-	BOOK_KVNS_ID="$kvns_id"; BOOK_KVNS_NAME="$T_kvns_name";
-
-	if [[ $persist_base -eq 1 ]]; then
-			info "Persisting new base to cursor: '${THIS_BASE_NAME}'";
-			printf "%s" "${THIS_BASE_NAME}" > "${BOOK_BASE_CURSOR}";
-	fi
-
-	if [[ $persist_context -eq 1 ]]; then
-			info "Persisting new context to cursor: '${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}'";
-			__persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
-	fi
-
-	trace "Context resolved: ${THIS_BASE_NAME}@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-	return 0;
-}
-
-################################################################################
-#
-# __write_keystore_to_file
-#
-################################################################################
-# Description: Generates and writes configuration content to a specified file.
-__write_keystore_to_file(){
-	local pns_name="$1"; local kvns_name="$2"; local target_file="$3";
-
-	local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name//\'/\'\'}';" );
-	local kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name//\'/\'\'}' AND pns_id_fk = ${pns_id};" );
-
-	if [[ -z "${kvns_id}" ]]; then
-		error "Internal error: Could not find ID for ${pns_name}/${kvns_name}.";
-		return 1;
-	fi
-
-	local header_content;
-	printf -v header_content "# bookdb export for keystore: %s in project: %s\n_BOOKDB_CHAIN_=@%s.VAR.%s\n_BOOKDB_WRITEMODE_=overwrite\n\n" \
-		"${kvns_name}" "${pns_name}" "${pns_name}" "${kvns_name}";
-	printf "%s" "${header_content}" > "${target_file}";
-
-	if [[ $? -ne 0 ]]; then error "Failed to write header to file: ${target_file}"; return 1; fi
-
-	local sql="SELECT var_key, var_value FROM vars WHERE kvns_id_fk = ${kvns_id} ORDER BY var_key;";
-	local results=$(__db_query "${sql}" "-separator" "|");
-	if [[ $? -ne 0 ]]; then error "Failed to retrieve variables for export."; return 1; fi
-
-	if [[ -n "${results}" ]]; then
-		echo "${results}" | while IFS="|" read -r key value; do
-			printf '%s="%s"\n' "${key}" "${value}" >> "${target_file}";
-		done
-	fi
-
-	return 0;
-}
-
-################################################################################
-#
-# __print_keystore_contents
-#
-################################################################################
-# Description: Queries and prints all key-value pairs for a given keystore.
-__print_keystore_contents(){
-	local pns_name="$1"; local kvns_name="$2";
-	local pns_name_sql="${pns_name//\'/\'\'}";
-	local kvns_name_sql="${kvns_name//\'/\'\'}";
-	local sql="SELECT v.var_key, v.var_value FROM vars v JOIN keyval_ns k ON v.kvns_id_fk = k.kvns_id JOIN project_ns p ON k.pns_id_fk = p.pns_id WHERE p.pns_name = '${pns_name_sql}' AND k.kvns_name = '${kvns_name_sql}' ORDER BY v.var_key;";
-	local results=$(__db_query "${sql}" "-separator" "|");
-
-	if [[ -z "${results}" ]]; then
-			printf " (empty)\n" >&2;
-	else
-			echo "${results}" | while IFS="|" read -r key value; do
-					printf " - %s = %s\n" "${key}" "${value}" >&2;
-			done
-	fi
-	return 0;
-}
-
-################################################################################
-#
-# __find_shell_profile
-#
-################################################################################
-# Description: Attempts to find the user's primary shell profile file.
-__find_shell_profile(){
-	if is_file "$HOME/.bashrc"; then
-		printf "%s" "$HOME/.bashrc";
-	elif is_file "$HOME/.bash_profile"; then
-		printf "%s" "$HOME/.bash_profile";
-	elif is_file "$HOME/.zshrc"; then
-		printf "%s" "$HOME/.zshrc";
-	elif is_file "$HOME/.zprofile"; then
-		printf "%s" "$HOME/.zprofile";
-	elif is_file "$HOME/.profile"; then
-		printf "%s" "$HOME/.profile";
-	else
-		return 1;
-	fi
-	return 0;
-}
-
-################################################################################
-#
-# __link_to_profile
-#
-################################################################################
-# Description: Adds a source line for the bookdb RC file to the user's shell profile.
-__link_to_profile(){
-	local profile_file="$1";
-	local link_line_content="$2";
-	local ret=1;
-
-	if [[ ! -f "${profile_file}" ]]; then
-		error "Shell profile not found: ${profile_file}. Cannot link RC file.";
-		return 1;
-	fi
-
-	if grep -qF -- "${link_line_content}" "${profile_file}" 2>/dev/null; then
-		trace "Profile link found '${profile_file}'.";
-		return 0;
-	else
-		trace "Adding bookdb configuration to '${profile_file}'...";
-		printf "\n%s\n" "${link_line_content}" >> "${profile_file}";
-		ret=$?;
-		if [[ ${ret} -ne 0 ]]; then
-			error "Failed to add link to profile: ${profile_file}. Permission denied?";
+		# Handle base override from opt_context_chain
+		if [[ -n "$temp_opt_context_chain" ]]; then
+				if [[ "$temp_opt_context_chain" == *@* ]]; then
+						local base_part="${temp_opt_context_chain%%@*}";
+						temp_opt_context_chain="${temp_opt_context_chain#*@}";
+						if ! _list_filterd_bases | grep -q "^${base_part}$"; then
+								error "Base '${base_part}' specified in context chain not found.";
+								return 1;
+						fi
+						THIS_BASE_NAME="$base_part";
+						THIS_DB=$(_get_base_path "${THIS_BASE_NAME}");
+						trace "Context chain base override: THIS_BASE_NAME set to ${THIS_BASE_NAME}";
+						persist_base=1; # Mark for persistence if @ was used
+				elif [[ "$temp_opt_context_chain" == *%* ]]; then
+						local base_part="${temp_opt_context_chain%%\%*}";
+						temp_opt_context_chain="${temp_opt_context_chain#*\%}";
+						if ! _list_filterd_bases | grep -q "^${base_part}$"; then
+								error "Base '${base_part}' specified in context chain not found.";
+								return 1;
+						fi
+						THIS_BASE_NAME="$base_part";
+						THIS_DB=$(_get_base_path "${THIS_BASE_NAME}");
+						trace "Context chain base override (non-persistent): THIS_BASE_NAME set to ${THIS_BASE_NAME}";
+				fi
 		fi
-	fi
-	return "${ret}";
-}
 
-################################################################################
-#
-# __unlink_from_profile
-#
-################################################################################
-# Description: Removes the bookdb source line from the user's shell profile.
-__unlink_from_profile(){
-	local profile_file="$1";
-	local sentinel_comment="# bookdb configuration for $BOOK_PREF";
-	local ret=0;
+		# --- Part 1: Prioritize command-line overrides ---
+		if [[ -n "$opt_projdb" ]]; then
+				context_from_cmd=1; persist_context=1;
+				T_pns_name="${opt_projdb}"; T_kvns_name="MAIN";
+		elif [[ -n "$temp_opt_context_chain" ]]; then # Use temp_opt_context_chain here
+				context_from_cmd=1;
+				if [[ "${temp_opt_context_chain}" == *".VAR."* ]]; then
+						T_pns_name="${temp_opt_context_chain%%.VAR.*}";
+						T_kvns_name="${temp_opt_context_chain#*.VAR.}";
+				else
+						T_pns_name="${temp_opt_context_chain%%.*}"; T_kvns_name="MAIN";
+				fi
+				if [[ "${opt_chain_mode}" == "@" ]]; then persist_context=1; fi
+		fi
 
-	if [[ ! -f "${profile_file}" ]]; then
-		trace "Profile file not found: ${profile_file}. Nothing to unlink.";
+		# --- Part 2: Fallback to Cursor Files ---
+		if [[ $context_from_cmd -eq 0 ]]; then
+				if [[ -f "${BOOK_CONTEXT_CURSOR}" ]]; then
+						T_pns_name=$(sed -n '1p' "${BOOK_CONTEXT_CURSOR}");
+						T_kvns_name=$(sed -n '2p' "${BOOK_CONTEXT_CURSOR}");
+				fi
+		fi
+
+		# --- Part 3: Final Defaulting and Validation ---
+		if __is_empty "${T_pns_name}"; then T_pns_name="GLOBAL"; fi
+		if __is_empty "${T_kvns_name}"; then T_kvns_name="MAIN"; fi
+
+		local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${T_pns_name}';");
+		if __is_empty "$pns_id"; then error "Project '${T_pns_name}' not found in base '${THIS_BASE_NAME}'."; return 1; fi
+		local kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${T_kvns_name}' AND pns_id_fk = ${pns_id};");
+		if __is_empty "$kvns_id"; then error "Keystore '${T_kvns_name}' not found in project '${T_pns_name}'."; return 1; fi
+
+		# --- Part 4: Commit to Globals and Persist Cursors ---
+		BOOK_PNS_ID="$pns_id"; BOOK_PNS_NAME="$T_pns_name";
+		BOOK_KVNS_ID="$kvns_id"; BOOK_KVNS_NAME="$T_kvns_name";
+
+		if [[ $persist_base -eq 1 ]]; then
+				info "Persisting new base to cursor: '${THIS_BASE_NAME}'";
+				printf "%s" "${THIS_BASE_NAME}" > "${BOOK_BASE_CURSOR}";
+		fi
+
+		if [[ $persist_context -eq 1 ]]; then
+				info "Persisting new context to cursor: '${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}'";
+				__persist_cursor "${BOOK_PNS_NAME}" "${BOOK_KVNS_NAME}";
+		fi
+
+		trace "Context resolved: ${THIS_BASE_NAME}@${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
 		return 0;
-	fi
+	}
 
-	if grep -qF -- "${sentinel_comment}" "${profile_file}" 2>/dev/null; then
-			trace "Removing bookdb configuration from '${profile_file}'...";
-			local sed_script="/${sentinel_comment}/d";
-			__sed_in_place "${sed_script}" "${profile_file}";
-			ret=$?;
-	fi
-	return "${ret}";
-}
+#-------------------------------------------------------------------------------
+# @__write_keystore_to_file
+#-------------------------------------------------------------------------------
+# Description: Generates and writes configuration content to a specified file.
+	__write_keystore_to_file(){
+		local pns_name="$1"; local kvns_name="$2"; local target_file="$3";
 
-# --- Command Functions (Business Logic) ---
-#
+		local pns_id=$(__db_query "SELECT pns_id FROM project_ns WHERE pns_name = '${pns_name//\'/\'\'}'" );
+		local kvns_id=$(__db_query "SELECT kvns_id FROM keyval_ns WHERE kvns_name = '${kvns_name//\'/\'\'}' AND pns_id_fk = ${pns_id};" );
 
-
-
-
-
-################################################################################
-#
-# do_ls
-#
-################################################################################
-# Description: Lists various database entities.
-do_ls(){
-	identify;
-	devlog "do_ls: THIS_BASE_NAME is ${THIS_BASE_NAME}";
-
-	local ret=1;
-	local what="${1:-keys}"; # Default to listing keys
-	case "${what}" in
-		(all) do_ls_all; ret=$?; ;;
-		(bases)
-			# local all_bases;
-			# all_bases="$(_list_filterd_bases)";
-
-			local all_bases=()
-			mapfile -t all_bases < <(_list_filterd_bases);
-
-			if __is_empty "${all_bases}"; then
-					info "No bases found.";
-			else
-					info "Available Bases!:";
-					for base_name in "${all_bases[@]}"; do
-							local prefix=" ";
-							if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
-									prefix="* ";
-							fi
-							info "${prefix}${base_name}";
-					done;
-			fi
-			#info "!list is : ${all_bases[@]}";
-			ret=0;
-			;;
-		(project)
-			__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;"; ret=$?; ;;
-		(vars)
-			local sql="SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${BOOK_PNS_ID} ORDER BY kvns_name;";
-			__db_query "${sql}"; ret=$?; ;;
-		(keys)
-			trace "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
-			local sql="SELECT var_key FROM vars WHERE kvns_id_fk = ${BOOK_KVNS_ID} ORDER BY var_key;";
-			__db_query "${sql}"; ret=$?; ;;
-		(*)
-			error "Invalid argument for 'ls'. Use 'all', 'bases', 'project', 'vars', or 'keys'.";
+		if [[ -z "${kvns_id}" ]]; then
+			error "Internal error: Could not find ID for ${pns_name}/${kvns_name}.";
 			return 1;
-			;;
-	esac
-	return "${ret}";
-}
+		fi
+
+		local header_content;
+		printf -v header_content "# bookdb export for keystore: %s in project: %s\n_BOOKDB_CHAIN_=@%s.VAR.%s\n_BOOKDB_WRITEMODE_=overwrite\n\n" \
+			"${kvns_name}" "${pns_name}" "${pns_name}" "${kvns_name}";
+		printf "%s" "${header_content}" > "${target_file}";
+
+		if [[ $? -ne 0 ]]; then error "Failed to write header to file: ${target_file}"; return 1; fi
+
+		local sql="SELECT var_key, var_value FROM vars WHERE kvns_id_fk = ${kvns_id} ORDER BY var_key;";
+		local results=$(__db_query "${sql}" "-separator" "|");
+		if [[ $? -ne 0 ]]; then error "Failed to retrieve variables for export."; return 1; fi
+
+		if [[ -n "${results}" ]]; then
+			echo "${results}" | while IFS="|" read -r key value; do
+				printf '%s="%s"\n' "${key}" "${value}" >> "${target_file}";
+			done
+		fi
+
+		return 0;
+	}
+
+#-------------------------------------------------------------------------------
+# @__print_keystore_contents
+#-------------------------------------------------------------------------------
+# Description: Queries and prints all key-value pairs for a given keystore.
+	__print_keystore_contents(){
+		local pns_name="$1"; local kvns_name="$2";
+		local pns_name_sql="${pns_name//'/'/''}";
+		local kvns_name_sql="${kvns_name//'/'/''}";
+		local sql="SELECT v.var_key, v.var_value FROM vars v JOIN keyval_ns k ON v.kvns_id_fk = k.kvns_id JOIN project_ns p ON k.pns_id_fk = p.pns_id WHERE p.pns_name = '${pns_name_sql}' AND k.kvns_name = '${kvns_name_sql}' ORDER BY v.var_key;";
+		local results=$(__db_query "${sql}" "-separator" "|");
+
+		if [[ -z "${results}" ]]; then
+				printf " (empty)\n" >&2;
+		else
+				echo "${results}" | while IFS="|" read -r key value; do
+						printf " - %s = %s\n" "${key}" "${value}" >&2;
+				done
+		fi
+		return 0;
+	}
+
+#-------------------------------------------------------------------------------
+# @__find_shell_profile
+#-------------------------------------------------------------------------------
+# Description: Attempts to find the user's primary shell profile file.
+	__find_shell_profile(){
+		if is_file "$HOME/.bashrc"; then
+			printf "%s" "$HOME/.bashrc";
+		elif is_file "$HOME/.bash_profile"; then
+			printf "%s" "$HOME/.bash_profile";
+		elif is_file "$HOME/.zshrc"; then
+			printf "%s" "$HOME/.zshrc";
+		elif is_file "$HOME/.zprofile"; then
+			printf "%s" "$HOME/.zprofile";
+		elif is_file "$HOME/.profile"; then
+			printf "%s" "$HOME/.profile";
+		else
+			return 1;
+		fi
+		return 0;
+	}
+
+#-------------------------------------------------------------------------------
+# @__link_to_profile
+#-------------------------------------------------------------------------------
+# Description: Adds a source line for the bookdb RC file to the user's shell profile.
+	__link_to_profile(){
+		local profile_file="$1";
+		local link_line_content="$2";
+		local ret=1;
+
+		if [[ ! -f "${profile_file}" ]]; then
+			error "Shell profile not found: ${profile_file}. Cannot link RC file.";
+			return 1;
+		fi
+
+		if grep -qF -- "${link_line_content}" "${profile_file}" 2>/dev/null; then
+			trace "Profile link found '${profile_file}'.";
+			return 0;
+		else
+			trace "Adding bookdb configuration to '${profile_file}'...";
+			printf "\n%s\n" "${link_line_content}" >> "${profile_file}";
+			ret=$?;
+			if [[ ${ret} -ne 0 ]]; then
+				error "Failed to add link to profile: ${profile_file}. Permission denied?";
+			fi
+		fi
+		return "${ret}";
+	}
+
+#-------------------------------------------------------------------------------
+# @__unlink_from_profile
+#-------------------------------------------------------------------------------
+# Description: Removes the bookdb source line from the user's shell profile.
+	__unlink_from_profile(){
+		local profile_file="$1";
+		local sentinel_comment="# bookdb configuration for $BOOK_PREF";
+		local ret=0;
+
+		if [[ ! -f "${profile_file}" ]]; then
+			trace "Profile file not found: ${profile_file}. Nothing to unlink.";
+			return 0;
+		fi
+
+		if grep -qF -- "${sentinel_comment}" "${profile_file}" 2>/dev/null; then
+				trace "Removing bookdb configuration from '${profile_file}'...";
+				local sed_script="/${sentinel_comment}/d";
+				__sed_in_place "${sed_script}" "${profile_file}";
+				ret=$?;
+		fi
+		return "${ret}";
+	}
+
+
+
+
+
+#-------------------------------------------------------------------------------
+# @do_ls
+#-------------------------------------------------------------------------------
+# Description: Lists various database entities.
+	do_ls(){
+		identify;
+		devlog "do_ls: THIS_BASE_NAME is ${THIS_BASE_NAME}";
+
+		local ret=1;
+		local what="${1:-keys}"; # Default to listing keys
+		case "${what}" in
+			(all) do_ls_all; ret=$?; ;;
+			(bases)
+				# local all_bases;
+				# all_bases="$(_list_filterd_bases)";
+
+				local all_bases=()
+				mapfile -t all_bases < <(_list_filterd_bases);
+
+				if __is_empty "${all_bases}"; then
+						info "No bases found.";
+				else
+						info "Available Bases!:";
+						for base_name in "${all_bases[@]}"; do
+								local prefix=" ";
+								if [[ "${base_name}" == "${THIS_BASE_NAME}" ]]; then
+										prefix="* ";
+								fi
+								info "${prefix}${base_name}";
+						done;
+				fi
+				#info "!list is : ${all_bases[@]}";
+				ret=0;
+				;;
+			(project)
+				__db_query "SELECT pns_name FROM project_ns ORDER BY pns_name;"; ret=$?; ;;
+			(vars)
+				local sql="SELECT kvns_name FROM keyval_ns WHERE pns_id_fk = ${BOOK_PNS_ID} ORDER BY kvns_name;";
+				__db_query "${sql}"; ret=$?; ;;
+			(keys)
+				trace "Listing keys in active cursor: @${BOOK_PNS_NAME}.VAR.${BOOK_KVNS_NAME}";
+				local sql="SELECT var_key FROM vars WHERE kvns_id_fk = ${BOOK_KVNS_ID} ORDER BY var_key;";
+				__db_query "${sql}"; ret=$?; ;;
+			(*)
+				error "Invalid argument for 'ls'. Use 'all', 'bases', 'project', 'vars', or 'keys'.";
+				return 1;
+				;;
+		esac
+		return "${ret}";
+	}
 
 
 ################################################################################
@@ -2093,15 +2199,15 @@ do_ls(){
 #
 ################################################################################
 # Description: Retrieves and prints the value of a variable to stdout.
-do_getv(){
-	local key="$1";
-	if __is_empty "${key}"; then error "Usage: bookdb getv <KEY>"; return 1; fi
-	__validate_name "${key}" "Key" || return 1;
-	local key_sql="${key//\'/\'\'}";
-	local sql="SELECT var_value FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};";
-	__db_query "${sql}";
-	return $?;
-}
+	do_getv(){
+		local key="$1";
+		if __is_empty "${key}"; then error "Usage: bookdb getv <KEY>"; return 1; fi
+		__validate_name "${key}" "Key" || return 1;
+		local key_sql="${key//\'/\'\'}";
+		local sql="SELECT var_value FROM vars WHERE var_key = '${key_sql}' AND kvns_id_fk = ${BOOK_KVNS_ID};";
+		__db_query "${sql}";
+		return $?;
+	}
 
 ################################################################################
 #
@@ -3069,16 +3175,16 @@ __setup_confirm(){
 ################################################################################
 # Description: Prints the content for the bookdb RC file.
 _get_rc_template(){
-		cat <<EOF
-# bookdb runtime configuration
-# Add bookdb bin to PATH if it's not already there.
-if [[ -d "${BOOK_BIN}" ]]; then
-	case ":\$PATH:" in
-		*:"${BOOK_BIN}":*) ;;
-		*) export PATH="${BOOK_BIN}:\$PATH" ;;
-	esac
-fi
-EOF
+		cat <<-EOF
+		# bookdb runtime configuration
+		# Add bookdb bin to PATH if it's not already there.
+		if [[ -d "${BOOK_BIN}" ]]; then
+			case ":\$PATH:" in
+				*:"${BOOK_BIN}":*) ;;
+				*) export PATH="${BOOK_BIN}:\$PATH" ;;
+			esac
+		fi
+		EOF
 	return 0;
 }
 
@@ -3437,7 +3543,7 @@ options(){
 # 2: col_width (integer) - The width of each individual column.
 # Returns: 0.
 # used exclusively with do_inspect but can be used elsewhere
-__print_in_columns() {
+__print_in_columns(){
 		local num_cols="$1";
 		local col_width="$2";
 		local -a items=();
@@ -3806,7 +3912,7 @@ main(){
 		(dev_setup) do_dev_setup "${ARGS[1]}"; exit $?; ;;
 		(\$)
 			mtrace "Dev mode sub call! ";
-			 dev_driver "${ARGS[@]}";
+			dev_driver "${ARGS[@]}";
 			LAST_CMD="DEV"; #label update
 		;;
 	esac
