@@ -8,3 +8,4 @@ RECOVERY.md
 bak*
 *.sh
 *.count*
+orig/
